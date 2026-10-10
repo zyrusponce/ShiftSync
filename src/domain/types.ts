@@ -1,0 +1,75 @@
+export type ItemKind = "event" | "shift" | "task" | "unavailable";
+export type Category = "Work" | "Personal" | "Important";
+export type Repeat = "Never" | "Daily" | "Weekly";
+export type CalendarView = "Month" | "Week" | "Day";
+export type ScheduleItem = {
+  id: string;
+  kind: ItemKind;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  category: Category;
+  location: string;
+  notes: string;
+  participants: string;
+  reminder: string;
+  repeat: Repeat;
+  exceptions?: string[];
+  priority: "Low" | "Medium" | "High";
+  completed: boolean;
+  status: "Confirmed" | "Open" | "Cancelled";
+  position: string;
+  swapRequested: boolean;
+};
+export type AvailabilityDay = {
+  day: number;
+  enabled: boolean;
+  start: string;
+  end: string;
+};
+export type Preferences = {
+  avoidOverlaps: boolean;
+  avoidBackToBack: boolean;
+  bufferMinutes: number;
+  preferredPeriod: "Any" | "Morning" | "Evening";
+  aiEnabled: boolean;
+  suggestions: boolean;
+  conflictSuggestions: boolean;
+  aiFrequency: "Daily" | "Weekly" | "Off";
+  defaultView: CalendarView;
+  weekStarts: "Monday" | "Sunday";
+  defaultDuration: number;
+  timeZone: string;
+  appearance: "Light" | "Dark" | "System";
+  reminders: boolean;
+  conflictAlerts: boolean;
+  shiftNotifications: boolean;
+};
+export type Profile = {
+  name: string;
+  email: string;
+  organization: string;
+  role: string;
+};
+export type Conflict = {
+  id: string;
+  date: string;
+  first: ScheduleItem;
+  second?: ScheduleItem;
+  severity: "High" | "Medium" | "Low";
+  minutes: number;
+  reason: string;
+};
+export type Slot = { date: string; start: string; end: string };
+export type AppData = {
+  version: 1;
+  profile: Profile | null;
+  onboarded: boolean;
+  items: ScheduleItem[];
+  availability: AvailabilityDay[];
+  preferences: Preferences;
+  ignoredConflicts: string[];
+  readNotifications: string[];
+  deletedNotifications: string[];
+};
