@@ -1,4 +1,5 @@
 # ShiftSync
+<<<<<<< HEAD
 
 A phone-only React Native app built with TypeScript and Expo, following [the supplied design specification](../design-1.md).
 
@@ -92,3 +93,6 @@ The dependency audit reports 23 inherited advisories (16 high, 7 moderate), prim
 ## Source layout
 
 `src/domain/` contains pure scheduling functions, types and sample data. `src/store/` owns local persistence. `src/components/` contains themed controls and calendar item cards. `src/screens/` groups the mobile features, and `src/navigation/` defines the typed stack and five-action tab bar. Poppins is bundled locally for offline use.
+=======
+ShiftSync is an AI-powered time management app for working college students that coordinates work shifts, class schedules, deadlines, and study time. It automatically detects conflicts, adjusts study sessions when schedules change, recommends productive use of short free periods, and supports focused study through Focus Mode.
+>>>>>>> 9419ad37d5404d3358ce08d1d57cb7277931e240
