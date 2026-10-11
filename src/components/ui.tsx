@@ -1,10 +1,19 @@
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Animated,
+  Dimensions,
+  Easing,
   Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -23,6 +32,18 @@ import {
 } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { fonts, palette, useTheme } from "../theme";
+import {
+  FadeIn,
+  Pop,
+  PressableScale,
+  durations,
+  easing,
+  haptics,
+  settle,
+  usePop,
+  useReducedMotion,
+  useThrottle,
+} from "./motion";
 
 export type IconName = React.ComponentProps<typeof Ionicons>["name"];
 const FocusContext = createContext<((field: TextInput | null) => void) | null>(
@@ -198,22 +219,25 @@ export function IconButton({
   dot?: boolean;
 }) {
   const theme = useTheme();
+  // The unread dot appearing is the state change worth showing; the bell
+  // itself stays still.
+  const dotScale = usePop(!!dot);
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [
-        s.iconButton,
-        {
-          backgroundColor: background ?? theme.surface,
-          opacity: pressed ? 0.65 : 1,
-        },
-      ]}
+      throttle={400}
+      scaleTo={0.94}
+      pressedOpacity={0.85}
+      style={[s.iconButton, { backgroundColor: background ?? theme.surface }]}
     >
       <Icon name={icon} />
-      {dot && <View style={s.dot} />}
-    </Pressable>
+      <Animated.View
+        pointerEvents="none"
+        style={[s.dot, { opacity: dotScale, transform: [{ scale: dotScale }] }]}
+      />
+    </PressableScale>
   );
 }
 export function Header({
@@ -266,14 +290,17 @@ export function Card({
     style,
   ];
   return onPress ? (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [...cardStyle, { opacity: pressed ? 0.75 : 1 }]}
+      throttle={400}
+      scaleTo={0.98}
+      pressedOpacity={0.92}
+      style={cardStyle}
     >
       {children}
-    </Pressable>
+    </PressableScale>
   ) : (
     <View style={cardStyle}>{children}</View>
   );
@@ -313,17 +340,22 @@ export function Button({
           : "#8C352D"
         : theme.text;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       onPress={onPress}
       disabled={disabled}
-      style={({ pressed }) => [
+      throttle={400}
+      // Filled buttons compress like a physical key; ghost buttons read as
+      // text links, so they only dim.
+      scaleTo={variant === "ghost" ? 1 : small ? 0.96 : 0.97}
+      pressedOpacity={variant === "ghost" ? 0.55 : 0.9}
+      style={[
         s.button,
         {
           backgroundColor: bg,
           paddingHorizontal: small ? 14 : 20,
-          opacity: disabled ? 0.4 : pressed ? 0.72 : 1,
+          opacity: disabled ? 0.4 : 1,
         },
       ]}
     >
@@ -338,7 +370,7 @@ export function Button({
       >
         {children}
       </Text>
-    </Pressable>
+    </PressableScale>
   );
 }
 export function Field({
@@ -349,6 +381,7 @@ export function Field({
   const theme = useTheme();
   const ref = useRef<TextInput>(null);
   const reveal = useContext(FocusContext);
+  const [focused, setFocused] = useState(false);
   return (
     <View style={{ gap: 8, marginBottom: 16 }}>
       <Label weight="medium">{label}</Label>
@@ -359,10 +392,12 @@ export function Field({
         selectionColor={palette.teal}
         {...props}
         onFocus={(event) => {
+          setFocused(true);
           reveal?.(ref.current);
           props.onFocus?.(event);
         }}
         onBlur={(event) => {
+          setFocused(false);
           reveal?.(null);
           props.onBlur?.(event);
         }}
@@ -371,13 +406,21 @@ export function Field({
           {
             color: theme.text,
             backgroundColor: theme.surface,
-            borderColor: error ? "#A34738" : theme.line,
+            borderColor: error
+              ? "#A34738"
+              : focused
+                ? palette.teal
+                : theme.line,
           },
           props.multiline && { minHeight: 100, textAlignVertical: "top" },
           props.style,
         ]}
       />
-      {error && <Label size={13}>{error}</Label>}
+      {error && (
+        <FadeIn trigger={error}>
+          <Label size={13}>{error}</Label>
+        </FadeIn>
+      )}
     </View>
   );
 }
@@ -440,18 +483,63 @@ export function Segments<T extends string>({
   onChange: (value: T) => void;
 }) {
   const theme = useTheme();
+  const reduced = useReducedMotion();
+  const [width, setWidth] = useState(0);
+  const index = Math.max(0, options.indexOf(value));
+  const position = useRef(new Animated.Value(index)).current;
+  useEffect(() => {
+    const animation = Animated.timing(position, {
+      toValue: index,
+      duration: reduced ? 0 : durations.component,
+      easing: easing.enter,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [index, reduced, position]);
+  const segmentWidth = width / options.length;
   return (
-    <View style={[s.segments, { backgroundColor: theme.soft }]}>
+    <View
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width - 8)}
+      style={[s.segments, { backgroundColor: theme.soft }]}
+    >
+      {width > 0 && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            s.segmentIndicator,
+            {
+              width: segmentWidth,
+              backgroundColor: theme.surface,
+              transform: [
+                {
+                  translateX: position.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, segmentWidth],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      )}
       {options.map((option) => (
         <Pressable
           key={option}
           accessibilityRole="button"
           accessibilityState={{ selected: value === option }}
-          onPress={() => onChange(option)}
-          style={[
+          onPress={() => {
+            if (option === value) return;
+            haptics.selection();
+            onChange(option);
+          }}
+          style={({ pressed }) => [
             s.segment,
             {
-              backgroundColor: value === option ? theme.surface : "transparent",
+              // Before the first layout pass, show the selection statically.
+              backgroundColor:
+                value === option && width === 0 ? theme.surface : "transparent",
+              opacity: pressed && value !== option ? 0.6 : 1,
             },
           ]}
         >
@@ -476,10 +564,15 @@ export function Choice({
 }) {
   const theme = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      onPress={onPress}
+      onPress={() => {
+        haptics.selection();
+        onPress();
+      }}
+      scaleTo={0.98}
+      pressedOpacity={0.9}
       style={[
         s.choice,
         {
@@ -492,10 +585,17 @@ export function Choice({
         },
       ]}
     >
-      <Icon
-        name={selected ? "checkmark-circle" : "ellipse-outline"}
-        color={selected ? (theme.dark ? palette.aqua : "#27666C") : theme.muted}
-      />
+      <View>
+        <Icon name="ellipse-outline" color={theme.muted} />
+        <View style={StyleSheet.absoluteFill}>
+          <Pop active={selected}>
+            <Icon
+              name="checkmark-circle"
+              color={theme.dark ? palette.aqua : "#27666C"}
+            />
+          </Pop>
+        </View>
+      </View>
       <View style={{ flex: 1 }}>
         <Label weight="medium">{label}</Label>
         {detail && (
@@ -504,7 +604,7 @@ export function Choice({
           </Label>
         )}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 export function Row({
@@ -521,6 +621,7 @@ export function Row({
   trailing?: React.ReactNode;
 }) {
   const theme = useTheme();
+  const press = useThrottle(onPress);
   const content = (
     <>
       <View style={[s.iconButton, { backgroundColor: theme.soft }]}>
@@ -538,7 +639,17 @@ export function Row({
     </>
   );
   return onPress ? (
-    <Pressable accessibilityRole="button" onPress={onPress} style={s.row}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={press}
+      // A soft brand-tinted highlight on both platforms instead of the
+      // full-width Android ripple.
+      style={({ pressed }) => [
+        s.row,
+        s.rowPressable,
+        pressed && { backgroundColor: theme.soft },
+      ]}
+    >
       {content}
     </Pressable>
   ) : (
@@ -591,28 +702,108 @@ export function Sheet({
 }) {
   const theme = useTheme();
   const inset = useSafeAreaInsets();
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(visible);
+  const [height, setHeight] = useState(() => Dimensions.get("window").height);
+  const progress = useRef(new Animated.Value(0)).current;
+  const drag = useRef(new Animated.Value(0)).current;
+  // Keep showing the last content while the sheet slides away, so the sheet
+  // doesn't collapse when the parent clears its state on close.
+  const content = useRef({ title, children });
+  if (visible) content.current = { title, children };
+  const close = useRef(onClose);
+  close.current = onClose;
+  const laidOut = useRef(false);
+  const pendingOpen = useRef(false);
+  const animation = useRef<Animated.CompositeAnimation | null>(null);
+  const run = (open: boolean) => {
+    animation.current?.stop();
+    animation.current = Animated.timing(progress, {
+      toValue: open ? 1 : 0,
+      duration: reduced ? 120 : open ? durations.sheet : durations.sheet - 40,
+      easing: open ? easing.enter : easing.exit,
+      useNativeDriver: true,
+    });
+    animation.current.start(({ finished }) => {
+      if (finished && !open) {
+        laidOut.current = false;
+        setMounted(false);
+      }
+    });
+  };
+  useEffect(() => {
+    if (visible) {
+      drag.setValue(0);
+      // Slide up once the sheet knows its own height, so the motion distance
+      // is right from the first frame.
+      if (laidOut.current) run(true);
+      else {
+        pendingOpen.current = true;
+        setMounted(true);
+      }
+    } else if (mounted) {
+      pendingOpen.current = false;
+      run(false);
+    }
+  }, [visible]);
+  useEffect(() => () => animation.current?.stop(), []);
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) =>
+        g.dy > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => drag.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 90 || g.vy > 0.9) close.current();
+        else
+          Animated.spring(drag, {
+            toValue: 0,
+            ...settle,
+            useNativeDriver: true,
+          }).start();
+      },
+      onPanResponderTerminate: () =>
+        Animated.spring(drag, {
+          toValue: 0,
+          ...settle,
+          useNativeDriver: true,
+        }).start(),
+    }),
+  ).current;
+  const shown = content.current;
   return (
     <Modal
       transparent
-      visible={visible}
-      animationType="slide"
+      visible={mounted}
+      animationType="none"
       onRequestClose={onClose}
     >
       <View
-        style={{
-          flex: 1,
-          justifyContent: "flex-end",
-          backgroundColor: "#080F2066",
-        }}
+        pointerEvents={visible ? "auto" : "none"}
+        style={{ flex: 1, justifyContent: "flex-end" }}
       >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close sheet"
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <View
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: "#080F2066", opacity: progress },
+          ]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close sheet"
+            onPress={onClose}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+        <Animated.View
           accessibilityViewIsModal
+          onLayout={(event) => {
+            setHeight(event.nativeEvent.layout.height);
+            laidOut.current = true;
+            if (pendingOpen.current) {
+              pendingOpen.current = false;
+              run(true);
+            }
+          }}
           style={{
             backgroundColor: theme.background,
             borderTopLeftRadius: 24,
@@ -620,30 +811,46 @@ export function Sheet({
             padding: 24,
             paddingBottom: Math.max(inset.bottom, 24),
             maxHeight: "85%",
+            opacity: reduced ? progress : 1,
+            transform: [
+              {
+                translateY: reduced
+                  ? 0
+                  : Animated.add(
+                      drag,
+                      progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [height + 24, 0],
+                      }),
+                    ),
+              },
+            ],
           }}
         >
-          <View
-            style={{
-              width: 40,
-              height: 4,
-              backgroundColor: palette.beige,
-              alignSelf: "center",
-              borderRadius: 2,
-              marginBottom: 16,
-            }}
-          />
-          <View style={[s.header, { marginBottom: 16 }]}>
-            <View style={{ flex: 1 }}>
-              <Label size={20} weight="semibold">
-                {title}
-              </Label>
+          <View {...pan.panHandlers}>
+            <View
+              style={{
+                width: 40,
+                height: 4,
+                backgroundColor: palette.beige,
+                alignSelf: "center",
+                borderRadius: 2,
+                marginBottom: 16,
+              }}
+            />
+            <View style={[s.header, { marginBottom: 16 }]}>
+              <View style={{ flex: 1 }}>
+                <Label size={20} weight="semibold">
+                  {shown.title}
+                </Label>
+              </View>
+              <IconButton icon="close" label="Close sheet" onPress={onClose} />
             </View>
-            <IconButton icon="close" label="Close sheet" onPress={onClose} />
           </View>
           <ScrollView keyboardShouldPersistTaps="handled">
-            {children}
+            {shown.children}
           </ScrollView>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -681,7 +888,12 @@ export function Brand() {
 export function Skeleton() {
   const opacity = useRef(new Animated.Value(0.4)).current;
   const theme = useTheme();
+  const reduced = useReducedMotion();
   useEffect(() => {
+    if (reduced) {
+      opacity.setValue(0.6);
+      return;
+    }
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, {
@@ -698,7 +910,7 @@ export function Skeleton() {
     );
     animation.start();
     return () => animation.stop();
-  }, [opacity]);
+  }, [opacity, reduced]);
   return (
     <Animated.View style={{ opacity, gap: 18, marginTop: 36 }}>
       {[0, 1, 2].map((n) => (
@@ -771,6 +983,13 @@ const s = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 10,
   },
+  segmentIndicator: {
+    position: "absolute",
+    top: 4,
+    bottom: 4,
+    left: 4,
+    borderRadius: 10,
+  },
   choice: {
     flexDirection: "row",
     alignItems: "center",
@@ -787,5 +1006,11 @@ const s = StyleSheet.create({
     gap: 14,
     minHeight: 68,
     paddingVertical: 10,
+  },
+  // Room for the pressed highlight; content stays exactly where it was.
+  rowPressable: {
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
   },
 });

@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
-import { Animated, PanResponder, Pressable, View } from "react-native";
+import { Animated, PanResponder, StyleSheet, View } from "react-native";
 import { Card, Badge, Icon, Label } from "./ui";
+import { Pop, PressableScale, animateLayout, haptics, settle } from "./motion";
 import { palette } from "../theme";
 import { formatDate, formatTime } from "../domain/schedule";
 import type { ScheduleItem } from "../domain/types";
@@ -27,10 +28,17 @@ export function ItemCard({
   const navigation = useRootNavigation();
   const { saveItem } = useApp();
   const shift = useRef(new Animated.Value(0)).current;
-  const onSwipe = useRef(() => {});
-  onSwipe.current = () => {
-    if (item.kind === "task") saveItem({ ...item, completed: !item.completed });
+  const toggleComplete = () => {
+    if (item.kind !== "task") return;
+    // Lists that hide completed tasks close the gap smoothly.
+    animateLayout();
+    // Feedback only after the store accepts the change.
+    if (saveItem({ ...item, completed: !item.completed }) === null)
+      item.completed ? haptics.tap() : haptics.success();
+    else haptics.error();
   };
+  const onSwipe = useRef(() => {});
+  onSwipe.current = toggleComplete;
   const gesture = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) =>
@@ -41,8 +49,18 @@ export function ItemCard({
         shift.setValue(Math.max(-100, Math.min(100, g.dx))),
       onPanResponderRelease: (_, g) => {
         if (Math.abs(g.dx) > 70) onSwipe.current();
-        Animated.spring(shift, { toValue: 0, useNativeDriver: true }).start();
+        Animated.spring(shift, {
+          toValue: 0,
+          ...settle,
+          useNativeDriver: true,
+        }).start();
       },
+      onPanResponderTerminate: () =>
+        Animated.spring(shift, {
+          toValue: 0,
+          ...settle,
+          useNativeDriver: true,
+        }).start(),
     }),
   ).current;
   return (
@@ -82,11 +100,14 @@ export function ItemCard({
             </Label>
           </View>
           {item.kind === "task" ? (
-            <Pressable
+            <PressableScale
               accessibilityRole="checkbox"
               accessibilityLabel={`Complete ${item.title}`}
               accessibilityState={{ checked: item.completed }}
-              onPress={() => saveItem({ ...item, completed: !item.completed })}
+              onPress={toggleComplete}
+              throttle={300}
+              scaleTo={0.88}
+              pressedOpacity={1}
               style={{
                 minWidth: 44,
                 minHeight: 44,
@@ -94,12 +115,19 @@ export function ItemCard({
                 justifyContent: "center",
               }}
             >
-              <Icon
-                name={item.completed ? "checkmark-circle" : "ellipse-outline"}
-                color={palette.teal}
-                size={26}
-              />
-            </Pressable>
+              <View>
+                <Icon name="ellipse-outline" color={palette.teal} size={26} />
+                <View style={StyleSheet.absoluteFill}>
+                  <Pop active={!!item.completed}>
+                    <Icon
+                      name="checkmark-circle"
+                      color={palette.teal}
+                      size={26}
+                    />
+                  </Pop>
+                </View>
+              </View>
+            </PressableScale>
           ) : (
             <Icon
               name={

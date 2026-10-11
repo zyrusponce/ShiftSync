@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
+  Animated,
   ScrollView,
   TextInput,
   View,
@@ -12,12 +12,67 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { Badge, Buddy, Button, Header, Icon, Label } from "../components/ui";
+import {
+  FadeIn,
+  PressableScale,
+  easing,
+  haptics,
+  useReducedMotion,
+} from "../components/motion";
 import { answerScheduleQuestion } from "../domain/schedule";
 import { useApp } from "../store/AppStore";
 import type { StackProps } from "../navigation/types";
 import { fonts, palette, useTheme } from "../theme";
 
 type Message = { id: number; user: boolean; text: string };
+// Three softly pulsing dots, shown only while a reply is actually pending.
+function TypingDots() {
+  const theme = useTheme();
+  const reduced = useReducedMotion();
+  const dots = useRef([0, 1, 2].map(() => new Animated.Value(0.3))).current;
+  useEffect(() => {
+    if (reduced) return;
+    const animation = Animated.loop(
+      Animated.stagger(
+        120,
+        dots.map((dot) =>
+          Animated.sequence([
+            Animated.timing(dot, {
+              toValue: 1,
+              duration: 260,
+              easing: easing.enter,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot, {
+              toValue: 0.3,
+              duration: 260,
+              easing: easing.exit,
+              useNativeDriver: true,
+            }),
+          ]),
+        ),
+      ),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [reduced, dots]);
+  return (
+    <View style={{ flexDirection: "row", gap: 4, marginLeft: 6 }}>
+      {dots.map((opacity, n) => (
+        <Animated.View
+          key={n}
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 3,
+            backgroundColor: theme.muted,
+            opacity: reduced ? 0.7 : opacity,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
 const prompts = [
   "What's on my schedule today?",
   "Find conflicts",
@@ -51,6 +106,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
   const send = (question: string) => {
     if (!question.trim() || typing || !data.preferences.aiEnabled) return;
     const clean = question.trim();
+    haptics.tap();
     setMessages((current) => [
       ...current,
       { id: Date.now(), user: true, text: clean },
@@ -99,53 +155,61 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
           contentContainerStyle={{ padding: 24, gap: 18 }}
         >
           {messages.map((message) => (
-            <View
-              key={message.id}
-              style={{
-                alignSelf: message.user ? "flex-end" : "flex-start",
-                maxWidth: "92%",
-                backgroundColor: message.user
-                  ? palette.navy
-                  : theme.dark
-                    ? "#25424A"
-                    : "#DFF2ED",
-                borderRadius: 18,
-                borderBottomRightRadius: message.user ? 5 : 18,
-                borderBottomLeftRadius: message.user ? 18 : 5,
-                padding: 16,
-              }}
-            >
-              <Label
-                style={{ color: message.user ? palette.ivory : theme.text }}
+            <FadeIn key={message.id}>
+              <View
+                style={{
+                  alignSelf: message.user ? "flex-end" : "flex-start",
+                  maxWidth: "92%",
+                  backgroundColor: message.user
+                    ? palette.navy
+                    : theme.dark
+                      ? "#25424A"
+                      : "#DFF2ED",
+                  borderRadius: 18,
+                  borderBottomRightRadius: message.user ? 5 : 18,
+                  borderBottomLeftRadius: message.user ? 18 : 5,
+                  padding: 16,
+                }}
               >
-                {message.text}
-              </Label>
-              {!message.user &&
-                /conflict|issue|alternatives/i.test(message.text) && (
-                  <View style={{ marginTop: 12, gap: 8 }}>
-                    <Button
-                      small
-                      onPress={() =>
-                        navigation.navigate("Main", { screen: "Conflicts" })
-                      }
-                    >
-                      Show Conflict
-                    </Button>
-                    <Button
-                      small
-                      variant="secondary"
-                      onPress={() => send("When am I free?")}
-                    >
-                      Find a Better Time
-                    </Button>
-                  </View>
-                )}
-            </View>
+                <Label
+                  style={{ color: message.user ? palette.ivory : theme.text }}
+                >
+                  {message.text}
+                </Label>
+                {!message.user &&
+                  /conflict|issue|alternatives/i.test(message.text) && (
+                    <View style={{ marginTop: 12, gap: 8 }}>
+                      <Button
+                        small
+                        onPress={() =>
+                          navigation.navigate("Main", { screen: "Conflicts" })
+                        }
+                      >
+                        Show Conflict
+                      </Button>
+                      <Button
+                        small
+                        variant="secondary"
+                        onPress={() => send("When am I free?")}
+                      >
+                        Find a Better Time
+                      </Button>
+                    </View>
+                  )}
+              </View>
+            </FadeIn>
           ))}
           {typing && (
-            <View accessibilityLiveRegion="polite">
-              <Label tone="muted">CalenBud is thinking · · ·</Label>
-            </View>
+            <FadeIn>
+              <View
+                accessibilityLiveRegion="polite"
+                accessibilityLabel="CalenBud is thinking"
+                style={{ flexDirection: "row", alignItems: "center" }}
+              >
+                <Label tone="muted">CalenBud is thinking</Label>
+                <TypingDots />
+              </View>
+            </FadeIn>
           )}
         </ScrollView>
         {!data.preferences.aiEnabled ? (
@@ -219,12 +283,13 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
                 }}
                 maxLength={1000}
               />
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel="Send message"
                 accessibilityState={{ disabled: typing || !text.trim() }}
                 disabled={typing || !text.trim()}
                 onPress={() => send(text)}
+                scaleTo={0.9}
                 style={{
                   width: 52,
                   height: 52,
@@ -236,7 +301,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
                 }}
               >
                 <Icon name="arrow-up" color={palette.navy} size={26} />
-              </Pressable>
+              </PressableScale>
             </View>
           </View>
         )}

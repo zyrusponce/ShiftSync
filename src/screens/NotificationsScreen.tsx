@@ -1,5 +1,14 @@
-import React, { useRef } from "react";
-import { Animated, PanResponder, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, Dimensions, PanResponder, View } from "react-native";
+import {
+  Pop,
+  animateLayout,
+  durations,
+  easing,
+  haptics,
+  settle,
+  useReducedMotion,
+} from "../components/motion";
 import {
   Badge,
   Button,
@@ -43,9 +52,52 @@ function NotificationCard({
   onDelete: () => void;
   onOpen: () => void;
 }) {
+  const reduced = useReducedMotion();
   const x = useRef(new Animated.Value(0)).current;
-  const callbacks = useRef({ onRead, onDelete });
-  callbacks.current = { onRead, onDelete };
+  const readOpacity = useRef(new Animated.Value(read ? 0.65 : 1)).current;
+  const leaving = useRef(false);
+  useEffect(() => {
+    const animation = Animated.timing(readOpacity, {
+      toValue: read ? 0.65 : 1,
+      duration: reduced ? 0 : durations.component,
+      easing: easing.enter,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [read, reduced, readOpacity]);
+  useEffect(() => () => x.stopAnimation(), [x]);
+  const settle = () =>
+    Animated.spring(x, {
+      toValue: 0,
+      ...settle,
+      useNativeDriver: true,
+    }).start();
+  // Slide the card away first, then remove it and let the list close up.
+  const remove = () => {
+    if (leaving.current) return;
+    leaving.current = true;
+    haptics.tap();
+    Animated.timing(x, {
+      toValue: -Dimensions.get("window").width,
+      duration: reduced ? 0 : durations.component,
+      easing: easing.exit,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (!finished) {
+        leaving.current = false;
+        return;
+      }
+      animateLayout();
+      onDelete();
+    });
+  };
+  const markRead = () => {
+    if (!read) haptics.selection();
+    onRead();
+  };
+  const callbacks = useRef({ remove, markRead });
+  callbacks.current = { remove, markRead };
   const gesture = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) =>
@@ -53,16 +105,20 @@ function NotificationCard({
       onPanResponderMove: (_, g) =>
         x.setValue(Math.max(-100, Math.min(100, g.dx))),
       onPanResponderRelease: (_, g) => {
-        if (g.dx > 70) callbacks.current.onRead();
-        if (g.dx < -70) callbacks.current.onDelete();
-        Animated.spring(x, { toValue: 0, useNativeDriver: true }).start();
+        if (g.dx < -70) {
+          callbacks.current.remove();
+          return;
+        }
+        if (g.dx > 70) callbacks.current.markRead();
+        settle();
       },
+      onPanResponderTerminate: settle,
     }),
   ).current;
   return (
     <Animated.View
       {...gesture.panHandlers}
-      style={{ transform: [{ translateX: x }], opacity: read ? 0.65 : 1 }}
+      style={{ transform: [{ translateX: x }], opacity: readOpacity }}
     >
       <Card>
         <View
@@ -79,17 +135,21 @@ function NotificationCard({
           >
             {notice.category}
           </Badge>
-          {!read && (
-            <View
-              accessibilityLabel="Unread"
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: palette.teal,
-              }}
-            />
-          )}
+          <View
+            accessible={!read}
+            accessibilityLabel={read ? undefined : "Unread"}
+          >
+            <Pop active={!read}>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: palette.teal,
+                }}
+              />
+            </Pop>
+          </View>
         </View>
         <Label weight="medium" style={{ marginTop: 14 }}>
           {notice.text}
@@ -112,12 +172,12 @@ function NotificationCard({
             <IconButton
               icon={read ? "checkmark-done-outline" : "checkmark-outline"}
               label="Mark as read"
-              onPress={onRead}
+              onPress={markRead}
             />
             <IconButton
               icon="trash-outline"
               label="Delete notification"
-              onPress={onDelete}
+              onPress={remove}
             />
           </View>
         </View>

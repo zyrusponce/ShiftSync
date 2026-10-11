@@ -80,26 +80,25 @@ export function DateTimeField({
           size={20}
         />
       </Pressable>
-      {open &&
-        (Platform.OS === "android" ? (
-          picker
-        ) : (
-          <Sheet visible onClose={() => setOpen(false)} title={label}>
-            {picker}
-            <Button
-              onPress={() => {
-                onChange(
-                  mode === "date"
-                    ? dateKey(draft)
-                    : timeKey(draft.getHours() * 60 + draft.getMinutes()),
-                );
-                setOpen(false);
-              }}
-            >
-              Done
-            </Button>
-          </Sheet>
-        ))}
+      {Platform.OS === "android" ? (
+        open && picker
+      ) : (
+        <Sheet visible={open} onClose={() => setOpen(false)} title={label}>
+          {picker}
+          <Button
+            onPress={() => {
+              onChange(
+                mode === "date"
+                  ? dateKey(draft)
+                  : timeKey(draft.getHours() * 60 + draft.getMinutes()),
+              );
+              setOpen(false);
+            }}
+          >
+            Done
+          </Button>
+        </Sheet>
+      )}
     </View>
   );
 }

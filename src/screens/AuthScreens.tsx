@@ -13,6 +13,7 @@ import {
   Label,
   Screen,
 } from "../components/ui";
+import { FadeIn, haptics } from "../components/motion";
 import { useApp } from "../store/AppStore";
 import { useRootNavigation, type StackProps } from "../navigation/types";
 import { palette, useTheme } from "../theme";
@@ -180,28 +181,33 @@ function AuthForm({ signup }: { signup: boolean }) {
   const [show, setShow] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
+  const fail = (message: string) => {
+    haptics.error();
+    setError(message);
+  };
   const submit = () => {
     if (signup && !name.trim()) {
-      setError("Please enter your full name.");
+      fail("Please enter your full name.");
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Please enter a valid email address.");
+      fail("Please enter a valid email address.");
       return;
     }
     if (password.length < 8) {
-      setError("Use a password with at least 8 characters.");
+      fail("Use a password with at least 8 characters.");
       return;
     }
     if (signup && password !== confirm) {
-      setError("Your passwords do not match.");
+      fail("Your passwords do not match.");
       return;
     }
     if (signup && !agreed) {
-      setError("Please acknowledge the demo terms and privacy notice.");
+      fail("Please acknowledge the demo terms and privacy notice.");
       return;
     }
     const fallbackName = email.trim().split("@")[0].replace(/[._-]/g, " ");
+    haptics.success();
     setProfile({
       name: signup
         ? name.trim()
@@ -223,9 +229,11 @@ function AuthForm({ signup }: { signup: boolean }) {
       footer={
         <View style={{ gap: 8 }}>
           {error ? (
-            <Label size={13} style={{ color: "#A34738" }}>
-              {error}
-            </Label>
+            <FadeIn trigger={error}>
+              <Label size={13} style={{ color: "#A34738" }}>
+                {error}
+              </Label>
+            </FadeIn>
           ) : null}
           <Button onPress={submit}>
             {signup ? "Create Account" : "Log In"}

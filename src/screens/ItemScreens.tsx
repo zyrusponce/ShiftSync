@@ -15,6 +15,7 @@ import {
   Sheet,
 } from "../components/ui";
 import { DateTimeField } from "../components/DateTimeField";
+import { FadeIn, animateLayout, haptics } from "../components/motion";
 import { newItem } from "../domain/seed";
 import {
   dateKey,
@@ -67,13 +68,19 @@ export function ItemEditorScreen({
   const save = () => {
     const invalid = validateItem(item);
     if (invalid) {
+      haptics.error();
       setError(invalid);
       return;
     }
     const commit = () => {
       const failure = saveItem(item);
-      if (failure) setError(failure);
-      else navigation.goBack();
+      if (failure) {
+        haptics.error();
+        setError(failure);
+      } else {
+        haptics.success();
+        navigation.goBack();
+      }
     };
     const issues = findConflicts(
       [...data.items.filter((value) => value.id !== item.id), item],
@@ -89,7 +96,8 @@ export function ItemEditorScreen({
       issues.length &&
       item.kind !== "unavailable" &&
       data.preferences.avoidOverlaps
-    )
+    ) {
+      haptics.warning();
       Alert.alert(
         "Check this time",
         `${formatDate(issues[0].date, true)}: ${issues[0].reason}${item.repeat !== "Never" ? "\nRecurring schedules are checked for the next 14 days." : ""}\n\nSave this time anyway, or return to the form?`,
@@ -98,7 +106,7 @@ export function ItemEditorScreen({
           { text: "Save anyway", onPress: commit },
         ],
       );
-    else commit();
+    } else commit();
   };
   if (route.params.id && !existing)
     return (
@@ -139,9 +147,11 @@ export function ItemEditorScreen({
       footer={
         <View style={{ gap: 8 }}>
           {error ? (
-            <Label size={13} style={{ color: "#A34738" }}>
-              {error}
-            </Label>
+            <FadeIn trigger={error}>
+              <Label size={13} style={{ color: "#A34738" }}>
+                {error}
+              </Label>
+            </FadeIn>
           ) : null}
           <Button
             icon="checkmark"
@@ -270,7 +280,10 @@ export function ItemEditorScreen({
               label="Let CalenBud help choose a time"
               detail="Find a time within your availability."
               selected={smart}
-              onPress={() => setSmart((value) => !value)}
+              onPress={() => {
+                animateLayout();
+                setSmart((value) => !value);
+              }}
             />
             {smart && (
               <Button
@@ -281,8 +294,10 @@ export function ItemEditorScreen({
                     ...item,
                     title: item.title.trim() || "New event",
                   });
-                  if (invalid) setError(invalid);
-                  else setPicker("slots");
+                  if (invalid) {
+                    haptics.error();
+                    setError(invalid);
+                  } else setPicker("slots");
                 }}
               >
                 Find available times
@@ -316,6 +331,7 @@ export function ItemEditorScreen({
                   <View style={{ marginTop: 12 }}>
                     <Button
                       onPress={() => {
+                        haptics.selection();
                         setItem((current) => ({ ...current, ...slot }));
                         setPicker(null);
                       }}
@@ -369,6 +385,11 @@ export function ItemDetailsScreen({
       </Screen>
     );
   const date = route.params.occurrenceDate ?? item.date;
+  // Saves a change and gives haptic feedback that matches the real result.
+  const confirm = (next: ScheduleItem) => {
+    if (saveItem(next) === null) haptics.success();
+    else haptics.error();
+  };
   const issues = findConflicts(
     data.items,
     data.availability,
@@ -391,6 +412,7 @@ export function ItemDetailsScreen({
           style: "destructive",
           onPress: () => {
             deleteItem(item.id);
+            haptics.tap();
             navigation.goBack();
           },
         },
@@ -404,7 +426,7 @@ export function ItemDetailsScreen({
         { text: "Keep shift", style: "cancel" },
         {
           text: "Record request",
-          onPress: () => saveItem({ ...item, swapRequested: true }),
+          onPress: () => confirm({ ...item, swapRequested: true }),
         },
       ],
     );
@@ -498,7 +520,7 @@ export function ItemDetailsScreen({
       {item.kind === "task" && (
         <Button
           icon="checkmark-circle-outline"
-          onPress={() => saveItem({ ...item, completed: !item.completed })}
+          onPress={() => confirm({ ...item, completed: !item.completed })}
         >
           {item.completed ? "Mark incomplete" : "Complete Task"}
         </Button>
@@ -534,7 +556,7 @@ export function ItemDetailsScreen({
                     { text: "Keep shift", style: "cancel" },
                     {
                       text: "Cancel shift",
-                      onPress: () => saveItem({ ...item, status: "Cancelled" }),
+                      onPress: () => confirm({ ...item, status: "Cancelled" }),
                     },
                   ],
                 )

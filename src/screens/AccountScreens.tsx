@@ -14,6 +14,7 @@ import {
   Section,
 } from "../components/ui";
 import { ItemCard } from "../components/ItemCard";
+import { FadeIn, haptics } from "../components/motion";
 import { searchItems } from "../domain/schedule";
 import { useApp } from "../store/AppStore";
 import type { StackProps } from "../navigation/types";
@@ -189,6 +190,7 @@ export function PersonalInfoScreen({ navigation }: StackProps<"PersonalInfo">) {
       !profile.name.trim() ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.email.trim())
     ) {
+      haptics.error();
       setError("Please add your name and a valid email address.");
       return;
     }
@@ -197,13 +199,18 @@ export function PersonalInfoScreen({ navigation }: StackProps<"PersonalInfo">) {
       name: profile.name.trim(),
       email: profile.email.trim().toLowerCase(),
     });
+    haptics.success();
     navigation.goBack();
   };
   return (
     <Screen
       footer={
         <View style={{ gap: 8 }}>
-          {error ? <Label>{error}</Label> : null}
+          {error ? (
+            <FadeIn trigger={error}>
+              <Label>{error}</Label>
+            </FadeIn>
+          ) : null}
           <Button onPress={save}>Save Changes</Button>
         </View>
       }

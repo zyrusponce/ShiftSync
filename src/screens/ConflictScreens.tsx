@@ -18,6 +18,7 @@ import {
   rescheduleOccurrence,
   suggestSlots,
 } from "../domain/schedule";
+import { animateLayout, haptics } from "../components/motion";
 import { newItem } from "../domain/seed";
 import { useApp } from "../store/AppStore";
 import { useRootNavigation, type StackProps } from "../navigation/types";
@@ -109,7 +110,11 @@ export function ConflictsScreen() {
                 <Button
                   variant="ghost"
                   small
-                  onPress={() => ignoreConflict(conflict.id)}
+                  onPress={() => {
+                    animateLayout();
+                    haptics.tap();
+                    ignoreConflict(conflict.id);
+                  }}
                 >
                   Ignore
                 </Button>
@@ -193,6 +198,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
           onPress: () => {
             const current = data.items.find((value) => value.id === item.id);
             if (!current) {
+              haptics.warning();
               Alert.alert(
                 "Event removed",
                 "This event is no longer on your schedule.",
@@ -200,6 +206,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
               return;
             }
             if (new Date(`${slot.date}T${slot.start}:00`) < new Date()) {
+              haptics.warning();
               Alert.alert(
                 "That time has passed",
                 "Choose another suggested time.",
@@ -228,6 +235,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
                   value.first.id === movedId || value.second?.id === movedId,
               );
               if (issues.length) {
+                haptics.warning();
                 Alert.alert(
                   "This time needs another look",
                   "That time conflicts with your schedule. Please choose another option or edit the event.",
@@ -235,8 +243,10 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
                 return;
               }
               moveOccurrence(current.id, conflict.date, slot);
+              haptics.success();
               navigation.goBack();
             } catch (error) {
+              haptics.error();
               Alert.alert(
                 "Check this event",
                 error instanceof Error ? error.message : "Please try again.",
@@ -320,6 +330,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
         <Button
           variant="ghost"
           onPress={() => {
+            haptics.tap();
             ignoreConflict(conflict.id);
             navigation.goBack();
           }}

@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
+import { PressableScale } from "../components/motion";
 import {
   Badge,
   Buddy,
@@ -76,10 +77,12 @@ export function HomeScreen() {
             dot={conflicts.length > 0}
             onPress={() => navigation.navigate("Notifications")}
           />
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Open profile"
             onPress={() => navigation.navigate("Profile")}
+            throttle={400}
+            scaleTo={0.92}
             style={{
               width: 44,
               height: 44,
@@ -92,7 +95,7 @@ export function HomeScreen() {
             <Label weight="semibold" style={{ color: palette.navy }}>
               {name[0].toUpperCase()}
             </Label>
-          </Pressable>
+          </PressableScale>
         </View>
       </View>
       <Header

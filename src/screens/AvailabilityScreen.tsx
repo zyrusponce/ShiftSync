@@ -11,6 +11,7 @@ import {
   Section,
 } from "../components/ui";
 import { DateTimeField } from "../components/DateTimeField";
+import { animateLayout, haptics } from "../components/motion";
 import { formatTime } from "../domain/schedule";
 import type { AvailabilityDay } from "../domain/types";
 import { useApp } from "../store/AppStore";
@@ -36,6 +37,7 @@ export function AvailabilityEditor({
   const [expanded, setExpanded] = useState<number | null>(null);
   const update = (day: AvailabilityDay) => {
     if (day.end <= day.start) {
+      haptics.warning();
       Alert.alert(
         "Check these hours",
         "Your available end time must be after your start time.",
@@ -58,12 +60,18 @@ export function AvailabilityEditor({
                   ? `${formatTime(day.start)} – ${formatTime(day.end)}`
                   : "Unavailable"
               }
-              onPress={() => setExpanded(expanded === day.day ? null : day.day)}
+              onPress={() => {
+                animateLayout();
+                setExpanded(expanded === day.day ? null : day.day);
+              }}
               trailing={
                 <Switch
                   accessibilityLabel={`Available on ${names[index]}`}
                   value={day.enabled}
-                  onValueChange={(enabled) => update({ ...day, enabled })}
+                  onValueChange={(enabled) => {
+                    if (expanded === day.day) animateLayout();
+                    update({ ...day, enabled });
+                  }}
                   trackColor={{ false: palette.beige, true: palette.teal }}
                   thumbColor="#FFFDF8"
                 />

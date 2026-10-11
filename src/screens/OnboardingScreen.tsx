@@ -1,5 +1,11 @@
-import React, { useRef, useState } from "react";
-import { PanResponder, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, PanResponder, View } from "react-native";
+import {
+  durations,
+  easing,
+  useEntrance,
+  useReducedMotion,
+} from "../components/motion";
 import {
   Brand,
   Buddy,
@@ -25,7 +31,20 @@ export function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const [met, setMet] = useState(false);
   const stepRef = useRef(step);
+  // Content enters from the side the user is moving toward.
+  const direction = useRef(1);
+  if (step !== stepRef.current)
+    direction.current = step > stepRef.current ? 1 : -1;
   stepRef.current = step;
+  const stepMotion = useEntrance(step, {
+    axis: "x",
+    distance: 16,
+    direction: direction.current,
+    duration: durations.navigation,
+    // A short glide, not a fade: the new step is readable immediately.
+    fromOpacity: 1,
+    onMount: false,
+  });
   const gesture = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) =>
@@ -77,18 +96,10 @@ export function OnboardingScreen() {
         }}
       >
         {[0, 1, 2, 3].map((n) => (
-          <View
-            key={n}
-            style={{
-              flex: 1,
-              height: 4,
-              borderRadius: 2,
-              backgroundColor: n <= step ? palette.teal : palette.beige,
-            }}
-          />
+          <ProgressSegment key={n} filled={n <= step} />
         ))}
       </View>
-      <View {...gesture.panHandlers}>
+      <Animated.View {...gesture.panHandlers} style={stepMotion}>
         <Label size={12} tone="muted">
           STEP {step + 1} OF 4
         </Label>
@@ -200,7 +211,41 @@ export function OnboardingScreen() {
             </Button>
           </View>
         )}
-      </View>
+      </Animated.View>
     </Screen>
+  );
+}
+function ProgressSegment({ filled }: { filled: boolean }) {
+  const reduced = useReducedMotion();
+  const fill = useRef(new Animated.Value(filled ? 1 : 0)).current;
+  useEffect(() => {
+    const animation = Animated.timing(fill, {
+      toValue: filled ? 1 : 0,
+      duration: reduced ? 0 : durations.component,
+      easing: filled ? easing.enter : easing.exit,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [filled, reduced, fill]);
+  return (
+    <View
+      style={{
+        flex: 1,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: palette.beige,
+        overflow: "hidden",
+      }}
+    >
+      <Animated.View
+        style={{
+          flex: 1,
+          backgroundColor: palette.teal,
+          transformOrigin: "left",
+          transform: [{ scaleX: fill }],
+        }}
+      />
+    </View>
   );
 }
