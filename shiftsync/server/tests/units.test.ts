@@ -174,7 +174,52 @@ test("Gemini client sends the key in a header and reports outages", async () => 
     "k",
     "m",
     (async () => new Response("", { status: 503 })) as unknown as typeof fetch,
+    1000,
+    { retryDelayMs: 0 },
   );
+  const urls: string[] = [];
+  const recovers = geminiClient(
+    "k",
+    "primary",
+    (async (url: string) => {
+      urls.push(url);
+      return urls.length === 1
+        ? new Response("", { status: 503 })
+        : new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: '{"a":1}' }] } }],
+            }),
+          );
+    }) as unknown as typeof fetch,
+    1000,
+    { retryDelayMs: 0 },
+  );
+  assert.deepEqual(
+    await recovers.generateJson({ system: "s", prompt: "p", schema: {} }),
+    { a: 1 },
+  );
+  const tried: string[] = [];
+  const fallsBack = geminiClient(
+    "k",
+    "primary",
+    (async (url: string) => {
+      tried.push(url);
+      return url.includes("/primary:")
+        ? new Response("", { status: 503 })
+        : new Response(
+            JSON.stringify({
+              candidates: [{ content: { parts: [{ text: '{"b":2}' }] } }],
+            }),
+          );
+    }) as unknown as typeof fetch,
+    1000,
+    { fallbackModels: ["backup"], retryDelayMs: 0 },
+  );
+  assert.deepEqual(
+    await fallsBack.generateJson({ system: "s", prompt: "p", schema: {} }),
+    { b: 2 },
+  );
+  assert.ok(tried.at(-1)!.includes("/backup:"));
   await assert.rejects(
     down.generateJson({ system: "s", prompt: "p", schema: {} }),
     AiUnavailable,

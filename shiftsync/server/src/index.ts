@@ -32,7 +32,9 @@ if (!env.google) log.warn("google_disabled", { missing: env.googleMissing });
 const app = createApp({
   auth: supabaseAuth(env.supabaseUrl, env.supabaseKey),
   repoFor: supabaseRepoFactory(env.supabaseUrl, env.supabaseKey),
-  ai: geminiClient(env.geminiApiKey, env.geminiModel),
+  ai: geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
+    fallbackModels: env.geminiFallbackModels,
+  }),
   google: googleRestApi(env.google),
   tokenKey: env.google?.tokenKey ?? null,
   stateKey: env.stateKey,

@@ -43,6 +43,7 @@ export type Env = {
   supabaseKey: string;
   geminiApiKey: string | null;
   geminiModel: string;
+  geminiFallbackModels: string[];
   google: GoogleConfig | null;
   /** Names still needed before Google sign-in can be enabled. */
   googleMissing: string[];
@@ -142,6 +143,10 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     supabaseKey: supabaseKey!,
     geminiApiKey: pick(source, ALIASES.gemini),
     geminiModel: source.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
+    geminiFallbackModels: (source.GEMINI_FALLBACK_MODELS ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
     google,
     googleMissing,
     // OAuth state only needs to outlive one sign-in, so a per-process key
