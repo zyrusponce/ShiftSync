@@ -1,0 +1,39 @@
+# Render Blueprint for the ShiftSync API (shiftsync/server).
+# Render → New → Blueprint → pick this repository. Values marked
+# `sync: false` are asked for once in the Render dashboard; they are secrets
+# and never belong in this file.
+services:
+  - type: web
+    name: shiftsync-api
+    runtime: node
+    plan: free
+    rootDir: shiftsync
+    # The server imports the shared engine from shiftsync/src/domain, so the
+    # whole shiftsync folder is deployed but only server/ dependencies installed.
+    buildCommand: npm --prefix server ci
+    startCommand: npm --prefix server start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Render terminates https in front of the app.
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # https://<your-service>.onrender.com/api/google/callback
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      # Use the same value as in shiftsync/server/.env, or tokens stored by
+      # one copy of the server can't be read by the other.
+      - key: GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY
+        sync: false

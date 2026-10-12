@@ -1,0 +1,193 @@
+// Deterministic helpers for CalenBud. The AI writes the words; these decide
+// what is actually free and which proposed changes are allowed.
+import type { AvailabilityDay, Preferences, ScheduleItem, Slot } from "./types";
+import type { ChatAction } from "./contract";
+import {
+  addDays,
+  blocksTime,
+  itemsOnDate,
+  minutes,
+  parseDate,
+  timeKey,
+} from "./schedule";
+import { breakMinutes } from "./policy";
+import type { LocalNow } from "./recovery";
+
+/** Free windows inside availability, keeping the student's break time. */
+export function freeTime(
+  items: ScheduleItem[],
+  availability: AvailabilityDay[],
+  preferences: Preferences,
+  now: LocalNow,
+  days = 3,
+  shortest = 30,
+): Slot[] {
+  const result: Slot[] = [];
+  const gap = breakMinutes(preferences);
+  for (let n = 0; n < days; n++) {
+    const date = addDays(now.date, n);
+    const day = availability.find(
+      (value) => value.day === parseDate(date).getDay(),
+    );
+    if (!day?.enabled) continue;
+    let cursor = minutes(day.start);
+    if (date === now.date)
+      cursor = Math.max(cursor, Math.ceil(now.minutes / 15) * 15);
+    const end = minutes(day.end);
+    const busy = itemsOnDate(items, date)
+      .filter(blocksTime)
+      .map((item) => [minutes(item.start) - gap, minutes(item.end) + gap])
+      .sort((a, b) => a[0] - b[0]);
+    for (const [from, to] of [...busy, [end, end]]) {
+      const stop = Math.min(from, end);
+      if (stop - cursor >= shortest)
+        result.push({ date, start: timeKey(cursor), end: timeKey(stop) });
+      cursor = Math.max(cursor, to);
+      if (cursor >= end) break;
+    }
+  }
+  return result;
+}
+
+const toMinutes = (hour: number, minute: number, meridiem?: string) =>
+  ((meridiem ? hour % 12 : hour) + (meridiem?.toLowerCase() === "p" ? 12 : 0)) *
+    60 +
+  minute;
+/** Clock times written in text ("10am", "2:30 pm", "14:00", "noon"). */
+export function parseTimes(text: string): number[] {
+  const found: number[] = [];
+  const ranged = text.replace(
+    /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(?:-|–|to)\s*(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*([ap])\.?\s*m\b\.?/gi,
+    (_match, h1, m1, h2, m2, meridiem: string) => {
+      const second = toMinutes(Number(h2), Number(m2 ?? 0), meridiem);
+      let first = toMinutes(Number(h1), Number(m1 ?? 0), meridiem);
+      // "10 to 2pm" means 10am: the start cannot be after the end.
+      if (first >= second)
+        first = toMinutes(
+          Number(h1),
+          Number(m1 ?? 0),
+          meridiem.toLowerCase() === "p" ? "a" : "p",
+        );
+      found.push(first, second);
+      return " ";
+    },
+  );
+  const rest = ranged.replace(
+    /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*([ap])\.?\s*m\b\.?/gi,
+    (_match, hour, minute, meridiem: string) => {
+      found.push(toMinutes(Number(hour), Number(minute ?? 0), meridiem));
+      return " ";
+    },
+  );
+  for (const match of rest.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g))
+    found.push(Number(match[1]) * 60 + Number(match[2]));
+  if (/\bnoon\b/i.test(rest)) found.push(12 * 60);
+  if (/\bmidnight\b/i.test(rest)) found.push(0);
+  return [...new Set(found)];
+}
+
+const MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const pad = (value: number) => String(value).padStart(2, "0");
+/** Calendar dates a message refers to, relative to `today`. */
+export function parseDates(text: string, today: string): string[] {
+  const found = new Set<string>();
+  const lower = text.toLowerCase();
+  if (/\bday after tomorrow\b/.test(lower)) found.add(addDays(today, 2));
+  else if (/\btomorrow\b/.test(lower)) found.add(addDays(today, 1));
+  if (/\b(today|tonight|this (morning|afternoon|evening))\b/.test(lower))
+    found.add(today);
+  const todayDay = parseDate(today).getDay();
+  for (const match of lower.matchAll(
+    /\b(next\s+)?(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/g,
+  )) {
+    const target = WEEKDAYS.indexOf(match[2]);
+    let ahead = (target - todayDay + 7) % 7;
+    if (match[1] && ahead === 0) ahead = 7;
+    found.add(addDays(today, ahead));
+  }
+  const year = Number(today.slice(0, 4));
+  const add = (month: number, day: number) => {
+    if (month < 1 || month > 12 || day < 1 || day > 31) return;
+    let date = `${year}-${pad(month)}-${pad(day)}`;
+    if (addDays(date, 0) !== date) return;
+    // A date well in the past most likely means next year.
+    if (date < addDays(today, -30))
+      date = `${year + 1}-${pad(month)}-${pad(day)}`;
+    found.add(date);
+  };
+  for (const match of lower.matchAll(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b/g,
+  ))
+    add(MONTHS.indexOf(match[1]) + 1, Number(match[2]));
+  for (const match of lower.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g))
+    add(Number(match[1]), Number(match[2]));
+  return [...found].sort();
+}
+
+/**
+ * Accepts an AI-proposed shift change only if it is grounded in what the
+ * student wrote: the start time must appear in the message, the end time
+ * comes from the message or keeps the shift's length, and the date is one
+ * the message names (or the shift's own date). Nothing is saved here; the
+ * app opens Shift Impact for the student to review.
+ */
+export function validateShiftChange(
+  raw: { shiftId?: unknown; date?: unknown; start?: unknown; end?: unknown },
+  items: ScheduleItem[],
+  userText: string,
+  today: string,
+): Extract<ChatAction, { type: "change_shift" }> | null {
+  const shift = items.find(
+    (item) =>
+      item.id === raw.shiftId &&
+      item.kind === "shift" &&
+      item.status !== "Cancelled",
+  );
+  // Recurring shifts are edited as a series in the shift editor instead.
+  if (!shift || shift.repeat !== "Never") return null;
+  const valid = (value: unknown): value is string =>
+    typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+  if (!valid(raw.start)) return null;
+  const said = parseTimes(userText);
+  const start = minutes(raw.start);
+  if (!said.includes(start)) return null;
+  const length = minutes(shift.end) - minutes(shift.start);
+  const end =
+    valid(raw.end) &&
+    said.includes(minutes(raw.end)) &&
+    minutes(raw.end) > start
+      ? minutes(raw.end)
+      : start + length;
+  if (end > 23 * 60 + 59) return null;
+  const dates = new Set(parseDates(userText, today));
+  if (shift.date >= today) dates.add(shift.date);
+  if (typeof raw.date !== "string" || !dates.has(raw.date) || raw.date < today)
+    return null;
+  const next = { date: raw.date, start: timeKey(start), end: timeKey(end) };
+  if (
+    next.date === shift.date &&
+    next.start === shift.start &&
+    next.end === shift.end
+  )
+    return null;
+  return {
+    type: "change_shift",
+    shiftId: shift.id,
+    title: shift.title,
+    ...next,
+  };
+}
