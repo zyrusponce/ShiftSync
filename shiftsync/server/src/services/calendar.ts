@@ -32,7 +32,8 @@ type Google = {
   log: Logger;
   now: () => Date;
 };
-const SYNC_DAYS = 14;
+const SYNC_DAYS_BACK = 30;
+const SYNC_DAYS = 90;
 const TOLERANCE_MS = 5000;
 
 function localTimes(event: GoogleEvent, timeZone: string) {
@@ -69,7 +70,7 @@ export async function importCalendar(
     "calendar",
     deps.now(),
   );
-  const from = addDays(schedule.now.date, -1);
+  const from = addDays(schedule.now.date, -SYNC_DAYS_BACK);
   const { timeMin, timeMax } = inRange(
     schedule,
     from,
