@@ -406,9 +406,20 @@ class SupabaseRepo implements Repo {
     return data as GoogleConnectionRow | null;
   }
   async saveGoogleConnection(row: Parameters<Repo["saveGoogleConnection"]>[0]) {
+    // Partial writes (sync status, refreshed tokens) must update the existing
+    // row: an upsert would fail the NOT NULL check on refresh_token_enc
+    // before Postgres ever reaches the conflict clause.
+    const updated = await this.db
+      .from("google_connections")
+      .update(row)
+      .eq("user_id", this.userId)
+      .select()
+      .maybeSingle();
+    raise(updated.error, "google_connections");
+    if (updated.data) return updated.data as GoogleConnectionRow;
     const { data, error } = await this.db
       .from("google_connections")
-      .upsert({ ...row, user_id: this.userId }, { onConflict: "user_id" })
+      .insert({ ...row, user_id: this.userId })
       .select()
       .single();
     raise(error, "google_connections");
