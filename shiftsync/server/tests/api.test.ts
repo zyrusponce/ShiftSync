@@ -736,3 +736,36 @@ test("partial updates change only the fields sent; null clears a deadline", asyn
   });
   assert.equal(cleared.body.item.deadline, undefined);
 });
+
+test("12b. all-day Google events import as non-blocking tasks", async () => {
+  const s = await student();
+  await connectGoogle(s.a);
+  h.google.events.length = 0;
+  h.google.events.push(
+    {
+      id: "gev-allday",
+      etag: '"a1"',
+      summary: "Midterm week",
+      start: { date: "2026-10-14" },
+      end: { date: "2026-10-15" },
+    },
+    {
+      id: "gev-trip",
+      etag: '"a2"',
+      summary: "Trip",
+      start: { date: "2026-10-16" },
+      end: { date: "2026-10-19" },
+    },
+  );
+  const result = await s.a.call("POST", "/api/calendar/sync");
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(result.body.imported, 1);
+  assert.deepEqual(result.body.skipped, [
+    { reason: "Multi-day all-day events", count: 1 },
+  ]);
+  const events = (await s.a.call("GET", "/api/events")).body.items as any[];
+  const task = events.find((e) => e.googleEventId === "gev-allday");
+  assert.equal(task.kind, "task");
+  assert.equal(task.date, "2026-10-14");
+  assert.equal(task.fixed, false);
+});

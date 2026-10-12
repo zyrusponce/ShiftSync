@@ -42,6 +42,12 @@ function localTimes(event: GoogleEvent, timeZone: string) {
   if (start.date !== end.date || end.time <= start.time) return null;
   return { date: start.date, start: start.time, end: end.time };
 }
+/** A single-day all-day event: Google gives plain dates with an exclusive end. */
+function allDayDate(event: GoogleEvent): string | null {
+  const start = event.start?.date;
+  const end = event.end?.date;
+  return start && end && end === addDays(start, 1) ? start : null;
+}
 const inRange = (schedule: Schedule, from: string, to: string) => ({
   timeMin: zonedToUtc(from, "00:00", schedule.timeZone).toISOString(),
   timeMax: zonedToUtc(addDays(to, 1), "00:00", schedule.timeZone).toISOString(),
@@ -114,12 +120,23 @@ export async function importCalendar(
       continue;
     }
     const times = localTimes(event, schedule.timeZone);
-    if (!times) {
-      skip(event.start?.date ? "All-day events" : "Events that cross midnight");
+    const day = times ? null : allDayDate(event);
+    if (!times && !day) {
+      skip(
+        event.start?.date
+          ? "Multi-day all-day events"
+          : "Events that cross midnight",
+      );
       continue;
     }
-    const start_at = new Date(event.start!.dateTime!).toISOString();
-    const end_at = new Date(event.end!.dateTime!).toISOString();
+    // All-day events become tasks due that day, so they show on the calendar
+    // without blocking time or creating conflicts.
+    const start_at = day
+      ? zonedToUtc(day, "00:00", schedule.timeZone).toISOString()
+      : new Date(event.start!.dateTime!).toISOString();
+    const end_at = day
+      ? zonedToUtc(day, "23:59", schedule.timeZone).toISOString()
+      : new Date(event.end!.dateTime!).toISOString();
     const title = (event.summary?.trim() || "Busy").slice(0, 120);
     if (linked) {
       if (linked.google_etag === event.etag) {
@@ -155,13 +172,13 @@ export async function importCalendar(
       await repo.insertEvent({
         id: crypto.randomUUID(),
         title,
-        kind: "event",
+        kind: day ? "task" : "event",
         category: "other",
         start_at,
         end_at,
         timezone: schedule.timeZone,
         // External commitments are treated as fixed until the student says otherwise.
-        is_fixed: true,
+        is_fixed: !day,
         priority: 2,
         deadline_at: null,
         is_splittable: false,
