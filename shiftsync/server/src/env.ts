@@ -141,7 +141,7 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     supabaseUrl: supabaseUrl!.replace(/\/$/, ""),
     supabaseKey: supabaseKey!,
     geminiApiKey: pick(source, ALIASES.gemini),
-    geminiModel: source.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+    geminiModel: source.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
     google,
     googleMissing,
     // OAuth state only needs to outlive one sign-in, so a per-process key

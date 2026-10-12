@@ -54,7 +54,7 @@ The server validates its configuration on startup and lists anything missing. It
 | Variable                                                                                               | Needed for                 | Notes                                                                          |
 | ------------------------------------------------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------ |
 | `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`                                                             | Everything                 | Publishable/anon key only. No service-role key is used.                        |
-| `GEMINI_API_KEY`, `GEMINI_MODEL`                                                                       | AI explanations and drafts | Optional; templates are used without it. Model defaults to `gemini-2.5-flash`. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL`                                                                       | AI explanations and drafts | Optional; templates are used without it. Model defaults to `gemini-3.8-flash`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY` | Calendar + Gmail           | All four or Google stays off. See step 4.                                      |
 | `PORT`, `HOST`, `TRUST_PROXY`, `APP_RETURN_URL_PREFIXES`                                               | Hosting                    | Defaults: `4000`, `0.0.0.0`, `false`, `shiftsync://,exp://`.                   |
 
@@ -245,7 +245,7 @@ npx expo export --platform android   # Metro/Hermes bundle check
 ### Implemented, not yet verified against live services
 
 - **Supabase:** the migration has not been applied to the real project, and the Supabase adapter (`server/src/repo/supabase.ts`) has only been typechecked. Run the migration, then sign up from the app and walk through the core flow.
-- **Gemini:** the client is tested against a fake HTTP server only. Confirm the key works with the default `gemini-2.5-flash` model (or set `GEMINI_MODEL`).
+- **Gemini:** the client is tested against a fake HTTP server only. Confirm the key works with the default `gemini-3.8-flash` model (or set `GEMINI_MODEL`).
 - **Sign in with Google, Google Calendar and Gmail:** blocked on `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` and `GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY`, plus the Google provider in Supabase for sign-in. The REST calls follow Google's documented endpoints but have not been made against Google.
 - **Android device:** no Android SDK or emulator was available, so no screen has been tapped through on a device. Check keyboard handling in the editor's contact form and Compose, the OAuth return deep link, and the offline banner.
 
