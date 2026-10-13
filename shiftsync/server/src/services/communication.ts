@@ -255,6 +255,37 @@ export {
   type Recipient,
 };
 
+const oneLine = (value: unknown) =>
+  typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+const withComma = (line: string) => `${line.replace(/[.,;:!\s]+$/, "")},`;
+
+/**
+ * Lays an email out the same way every time: greeting, short paragraphs,
+ * closing, then the student's name, with blank lines between the parts.
+ * Returns null when there is no usable paragraph.
+ */
+export function formatEmail(
+  parts: { greeting?: unknown; paragraphs?: unknown; closing?: unknown },
+  recipientName: string,
+  studentName: string,
+): string | null {
+  const paragraphs = (Array.isArray(parts.paragraphs) ? parts.paragraphs : [])
+    .map(oneLine)
+    .filter((paragraph) => paragraph.length > 0)
+    .slice(0, 5);
+  if (paragraphs.length === 0) return null;
+  const greeting =
+    oneLine(parts.greeting) || `Hi ${recipientName.trim() || "there"}`;
+  const closing = oneLine(parts.closing) || "Thank you";
+  return [
+    withComma(greeting),
+    "",
+    paragraphs.join("\n\n"),
+    "",
+    `${withComma(closing)}\n${studentName.trim() || "Your student"}`,
+  ].join("\n");
+}
+
 export async function draftEmail(
   ai: AiClient,
   conflict: Conflict,
@@ -279,7 +310,7 @@ export async function draftEmail(
         : "someone involved in the student's commitment. Be polite and clear.";
   try {
     const result = (await ai.generateJson({
-      system: `${SYSTEM_RULES} Write a short email (under 170 words) from the student to ${audience} Greet the recipient by the name given and sign with the student's name.`,
+      system: `${SYSTEM_RULES} Write a short, polished email (under 150 words) from the student to ${audience} Fill in the parts exactly as follows. subject: specific and calm, under 10 words, no capital-letter shouting. greeting: a salutation using the recipient's name, such as "Dear Professor Reyes" or "Hi Dana"; use "Dear" for professors and supervisors you are unsure about, and never invent a title. paragraphs: two or three short paragraphs of one to three sentences each. The first says why you are writing and names the commitments with their date and time. The second states the conflict plainly. The last makes one clear, courteous request. closing: a short sign-off such as "Thank you" or "Sincerely". Do not repeat the greeting, closing or the student's name inside the paragraphs, and do not use bullet points, markdown or emojis.`,
       prompt: JSON.stringify({
         facts: facts.summary,
         recipient: {
@@ -290,15 +321,23 @@ export async function draftEmail(
       }),
       schema: {
         type: "OBJECT",
-        properties: { subject: { type: "STRING" }, body: { type: "STRING" } },
-        required: ["subject", "body"],
+        properties: {
+          subject: { type: "STRING" },
+          greeting: { type: "STRING" },
+          paragraphs: { type: "ARRAY", items: { type: "STRING" } },
+          closing: { type: "STRING" },
+        },
+        required: ["subject", "greeting", "paragraphs", "closing"],
       },
-    })) as { subject?: unknown; body?: unknown };
-    const subject =
-      typeof result?.subject === "string"
-        ? result.subject.replace(/[\r\n]+/g, " ").trim()
-        : "";
-    const body = typeof result?.body === "string" ? result.body.trim() : "";
+    })) as {
+      subject?: unknown;
+      greeting?: unknown;
+      paragraphs?: unknown;
+      closing?: unknown;
+    };
+    const subject = oneLine(result?.subject);
+    const body =
+      formatEmail(result ?? {}, recipient.name, studentName) ?? "";
     if (
       subject.length < 3 ||
       subject.length > 150 ||

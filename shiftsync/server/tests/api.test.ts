@@ -327,7 +327,12 @@ test("9, 10, 14. the student picks recipients; each message is separate and AI-s
     kind: "ok",
     reply: () => ({
       subject: "Statistics class conflict",
-      body: "Dear Prof. Reyes,\n\nMy work shift now runs 9:00 AM to 2:00 PM and overlaps Statistics class (1:00 PM to 3:00 PM). Could we discuss options?\n\nAna Santos",
+      greeting: "Dear Prof. Reyes",
+      paragraphs: [
+        "My work shift now runs 9:00 AM to 2:00 PM and overlaps Statistics class (1:00 PM to 3:00 PM).",
+        "Could we discuss options?",
+      ],
+      closing: "Sincerely",
     }),
   };
   const professor = await s.a.call("POST", "/api/ai/draft", {
@@ -335,12 +340,18 @@ test("9, 10, 14. the student picks recipients; each message is separate and AI-s
     contactId: s.professor.id,
   });
   assert.equal(professor.body.source, "ai");
+  assert.match(
+    professor.body.notification.body,
+    /^Dear Prof\. Reyes,\n\nMy work shift[^\n]+\n\nCould we discuss options\?\n\nSincerely,\n.+$/,
+  );
   assert.notEqual(professor.body.notification.id, message.id);
   h.aiMode.current = {
     kind: "ok",
     reply: () => ({
       subject: "Conflict",
-      body: "Hi Dana, could I come in at 6:00 PM instead? I will be there tomorrow. Thanks, Ana",
+      greeting: "Hi Dana",
+      paragraphs: ["Could I come in at 6:00 PM instead? I will be there tomorrow."],
+      closing: "Thanks",
     }),
   };
   const invented = await s.a.call("POST", "/api/ai/draft", {
