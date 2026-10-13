@@ -3,7 +3,7 @@ import { createApp } from "./app";
 import { ConfigError, loadEnvFiles, readEnv, type Env } from "./env";
 import { createLogger } from "./http";
 import { supabaseRepoFactory } from "./repo/supabase";
-import { geminiClient } from "./services/ai";
+import { geminiClient, openRouterClient } from "./services/ai";
 import { supabaseAuth } from "./services/auth";
 import { googleRestApi } from "./services/google";
 
@@ -23,18 +23,25 @@ try {
   }
   throw error;
 }
-if (!env.geminiApiKey)
+const aiEnabled = !!(env.openrouterApiKey || env.geminiApiKey);
+if (!aiEnabled)
   log.warn("ai_disabled", {
-    reason: "No Gemini key; explanations and drafts use templates.",
+    reason:
+      "No OpenRouter or Gemini key; explanations and drafts use templates.",
   });
 if (!env.google) log.warn("google_disabled", { missing: env.googleMissing });
 
 const app = createApp({
   auth: supabaseAuth(env.supabaseUrl, env.supabaseKey),
   repoFor: supabaseRepoFactory(env.supabaseUrl, env.supabaseKey),
-  ai: geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
-    fallbackModels: env.geminiFallbackModels,
-  }),
+  // OpenRouter wins when its key is set; otherwise fall back to Gemini.
+  ai: env.openrouterApiKey
+    ? openRouterClient(env.openrouterApiKey, env.openrouterModel, fetch, 25000, {
+        fallbackModels: env.openrouterFallbackModels,
+      })
+    : geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
+        fallbackModels: env.geminiFallbackModels,
+      }),
   google: googleRestApi(env.google),
   tokenKey: env.google?.tokenKey ?? null,
   stateKey: env.stateKey,
@@ -47,7 +54,7 @@ const server = app.listen(env.port, env.host, () =>
   log.info("listening", {
     host: env.host,
     port: env.port,
-    ai: !!env.geminiApiKey,
+    ai: aiEnabled,
     google: !!env.google,
   }),
 );

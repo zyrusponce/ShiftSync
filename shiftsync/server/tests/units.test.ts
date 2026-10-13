@@ -9,7 +9,11 @@ import {
   verifyState,
 } from "../src/services/crypto";
 import { buildRawEmail } from "../src/services/google";
-import { geminiClient, AiUnavailable } from "../src/services/ai";
+import {
+  geminiClient,
+  openRouterClient,
+  AiUnavailable,
+} from "../src/services/ai";
 import { groundingProblem, type Facts } from "../src/services/communication";
 import { itemToRow, rowToItem } from "../src/mapping";
 import type { EventRow } from "../src/repo/types";
@@ -232,6 +236,68 @@ test("Gemini client sends the key in a header and reports outages", async () => 
     AiUnavailable,
   );
   assert.equal(geminiClient(null, "m").available, false);
+});
+
+test("OpenRouter client uses a bearer header, retries and reports outages", async () => {
+  let seen: { url: string; init: RequestInit } | null = null;
+  const ok = openRouterClient(
+    "or-key",
+    "vendor/model",
+    (async (url: string, init: RequestInit) => {
+      seen = { url, init };
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"explanation":"ok"}' } }],
+        }),
+      );
+    }) as unknown as typeof fetch,
+    1000,
+    { fallbackModels: ["vendor/backup"] },
+  );
+  assert.deepEqual(
+    await ok.generateJson({ system: "s", prompt: "p", schema: { type: "object" } }),
+    { explanation: "ok" },
+  );
+  assert.ok(!seen!.url.includes("or-key"), "the key never goes in the URL");
+  assert.equal(
+    (seen!.init.headers as Record<string, string>).Authorization,
+    "Bearer or-key",
+  );
+  const sent = JSON.parse(seen!.init.body as string);
+  assert.deepEqual(sent.models, ["vendor/model", "vendor/backup"]);
+  assert.equal(sent.response_format.type, "json_schema");
+
+  let calls = 0;
+  const recovers = openRouterClient(
+    "k",
+    "m",
+    (async () => {
+      calls++;
+      return calls === 1
+        ? new Response("", { status: 503 })
+        : new Response(
+            JSON.stringify({ choices: [{ message: { content: '{"a":1}' } }] }),
+          );
+    }) as unknown as typeof fetch,
+    1000,
+    { retryDelayMs: 0 },
+  );
+  assert.deepEqual(
+    await recovers.generateJson({ system: "s", prompt: "p", schema: {} }),
+    { a: 1 },
+  );
+  const down = openRouterClient(
+    "k",
+    "m",
+    (async () => new Response("", { status: 401 })) as unknown as typeof fetch,
+    1000,
+    { retryDelayMs: 0 },
+  );
+  await assert.rejects(
+    down.generateJson({ system: "s", prompt: "p", schema: {} }),
+    AiUnavailable,
+  );
+  assert.equal(openRouterClient(null, "m").available, false);
 });
 
 test("events are stored in UTC and read back in the user's time zone", () => {

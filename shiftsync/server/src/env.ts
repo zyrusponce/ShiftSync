@@ -44,6 +44,9 @@ export type Env = {
   geminiApiKey: string | null;
   geminiModel: string;
   geminiFallbackModels: string[];
+  openrouterApiKey: string | null;
+  openrouterModel: string;
+  openrouterFallbackModels: string[];
   google: GoogleConfig | null;
   /** Names still needed before Google sign-in can be enabled. */
   googleMissing: string[];
@@ -144,6 +147,13 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     geminiApiKey: pick(source, ALIASES.gemini),
     geminiModel: source.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
     geminiFallbackModels: (source.GEMINI_FALLBACK_MODELS ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+    openrouterApiKey: source.OPENROUTER_API_KEY?.trim() || null,
+    openrouterModel:
+      source.OPENROUTER_MODEL?.trim() || "google/gemini-2.5-flash",
+    openrouterFallbackModels: (source.OPENROUTER_FALLBACK_MODELS ?? "")
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean),
