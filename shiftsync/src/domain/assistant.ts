@@ -191,3 +191,95 @@ export function validateShiftChange(
     ...next,
   };
 }
+
+const CATEGORIES = [
+  "Work",
+  "Class",
+  "Study",
+  "Personal",
+  "Important",
+  "Other",
+] as const;
+const validTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+const cleanTitle = (value: unknown, max = 80) =>
+  typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, max)
+    : "";
+
+/**
+ * A new item the student asked for. The date and start time must come from
+ * what they wrote (this message or the last few), never from the model alone.
+ * The end time is theirs if stated, otherwise the default duration.
+ */
+export function validateAddItem(
+  raw: Record<string, unknown>,
+  userText: string,
+  today: string,
+  defaultDuration: number,
+): Extract<ChatAction, { type: "add_item" }> | null {
+  const title = cleanTitle(raw.title);
+  if (title.length < 2 || /https?:\/\/|@/.test(title)) return null;
+  if (!validTime(raw.start) || typeof raw.date !== "string") return null;
+  if (raw.date < today || !parseDates(userText, today).includes(raw.date))
+    return null;
+  const said = parseTimes(userText);
+  const start = minutes(raw.start);
+  if (!said.includes(start)) return null;
+  const stated =
+    validTime(raw.end) &&
+    said.includes(minutes(raw.end)) &&
+    minutes(raw.end) > start
+      ? minutes(raw.end)
+      : null;
+  const end = stated ?? start + Math.max(15, defaultDuration || 60);
+  if (end > 23 * 60 + 59) return null;
+  const kind =
+    raw.kind === "task" || raw.kind === "shift" ? raw.kind : "event";
+  const category = CATEGORIES.find((value) => value === raw.category) ??
+    (kind === "shift" ? "Work" : kind === "task" ? "Important" : "Personal");
+  return {
+    type: "add_item",
+    kind,
+    title,
+    date: raw.date,
+    start: timeKey(start),
+    end: timeKey(end),
+    category,
+    location: cleanTitle(raw.location, 80),
+  };
+}
+
+const words = (text: string) =>
+  text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 3);
+/**
+ * Removing is destructive, so the item must exist, must not be a repeating
+ * series (those are edited in the item screen), and the student's message
+ * must name it by a word from its title or by its date.
+ */
+export function validateRemoveItem(
+  raw: Record<string, unknown>,
+  items: ScheduleItem[],
+  userText: string,
+  today: string,
+): Extract<ChatAction, { type: "remove_item" }> | null {
+  const item = items.find(
+    (value) => value.id === raw.itemId && value.status !== "Cancelled",
+  );
+  if (!item || item.repeat !== "Never") return null;
+  const said = new Set(words(userText));
+  const named = words(item.title).some((word) => said.has(word));
+  const dated = parseDates(userText, today).includes(item.date);
+  if (!named && !dated) return null;
+  return {
+    type: "remove_item",
+    itemId: item.id,
+    title: item.title,
+    date: item.date,
+    start: item.start,
+    end: item.end,
+  };
+}

@@ -226,6 +226,25 @@ export type ChatAction =
       start: string;
       end: string;
     }
+  | {
+      type: "add_item";
+      kind: "event" | "task" | "shift";
+      title: string;
+      date: string;
+      start: string;
+      end: string;
+      category: "Work" | "Class" | "Study" | "Personal" | "Important" | "Other";
+      location: string;
+    }
+  | {
+      type: "remove_item";
+      itemId: string;
+      title: string;
+      date: string;
+      start: string;
+      end: string;
+    }
+  | { type: "resolve_conflict"; conflictId: string; title: string }
   | { type: "show_conflicts" };
 export type ChatResponse = {
   reply: string;

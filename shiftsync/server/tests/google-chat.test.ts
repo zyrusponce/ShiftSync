@@ -239,3 +239,88 @@ test("editing a Google-linked event updates that event; Add to Calendar adds onc
   const refused = await stranger.call("POST", `/api/calendar/events/${own.id}`);
   assert.equal(refused.body.error.code, "GOOGLE_NOT_CONNECTED");
 });
+
+test("CalenBud proposes adding, removing and resolving, grounded in what was said", async () => {
+  const s = await student();
+  const ask = (text: string) =>
+    s.a.call("POST", "/api/ai/chat", { messages: [{ role: "user", text }] });
+  const say = (reply: string, action: Record<string, unknown>) => {
+    h.aiMode.current = { kind: "ok", reply: () => ({ reply, action }) };
+  };
+
+  say("Sure, I can add Dentist appointment tomorrow at 3:00 PM once you confirm.", {
+    type: "add_item",
+    title: "Dentist appointment",
+    kind: "event",
+    date: "2026-10-13",
+    start: "15:00",
+    category: "Personal",
+  });
+  const added = await ask("Add a dentist appointment tomorrow at 3pm");
+  assert.equal(added.body.source, "ai", JSON.stringify(added.body));
+  assert.equal(added.body.action.type, "add_item");
+  assert.equal(added.body.action.title, "Dentist appointment");
+  assert.equal(added.body.action.date, "2026-10-13");
+  assert.equal(added.body.action.start, "15:00");
+  assert.ok(added.body.action.end > "15:00");
+  const stored = (await s.a.call("GET", "/api/events")).body.items as any[];
+  assert.ok(
+    !stored.some((i) => i.title === "Dentist appointment"),
+    "the chat never saves anything itself",
+  );
+
+  say("Adding it at 6:00 PM.", {
+    type: "add_item",
+    title: "Dentist appointment",
+    date: "2026-10-13",
+    start: "18:00",
+  });
+  const invented = await ask("Add a dentist appointment tomorrow at 3pm");
+  assert.equal(invented.body.action, null, "a time the student never said");
+
+  say("Which day is that?", {
+    type: "add_item",
+    title: "Dentist appointment",
+    date: "2026-10-13",
+    start: "15:00",
+  });
+  assert.equal((await ask("Add a dentist appointment")).body.action, null);
+
+  say("I can remove your Evening shift tomorrow once you confirm.", {
+    type: "remove_item",
+    itemId: s.shift.id,
+  });
+  const removal = await ask("Remove my evening shift tomorrow");
+  assert.equal(removal.body.action?.type, "remove_item", JSON.stringify(removal.body));
+  assert.equal(removal.body.action.itemId, s.shift.id);
+  say("Removing it.", { type: "remove_item", itemId: s.shift.id });
+  assert.equal(
+    (await ask("What is the weather like?")).body.action,
+    null,
+    "an item the message never names is not removed",
+  );
+  say("Removing it.", { type: "remove_item", itemId: "not-a-real-id" });
+  assert.equal((await ask("Remove my evening shift")).body.action, null);
+
+  const moved = await s.a.call("PATCH", `/api/events/${s.shift.id}`, {
+    start: "13:00",
+    end: "15:00",
+  });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  h.aiMode.current = {
+    kind: "ok",
+    reply: (_system, sent) => {
+      const conflict = JSON.parse(sent).facts.conflicts[0];
+      return {
+        reply:
+          "That overlaps your Statistics class. The Resolve screen will show options you can choose from.",
+        action: { type: "resolve_conflict", conflictId: conflict.conflictId },
+      };
+    },
+  };
+  const resolve = await ask("Fix my conflict tomorrow");
+  assert.equal(resolve.body.action?.type, "resolve_conflict", JSON.stringify(resolve.body));
+  assert.match(resolve.body.action.conflictId, /^2026-10-13:/);
+  say("Opening it.", { type: "resolve_conflict", conflictId: "nope" });
+  assert.equal((await ask("Fix my conflict")).body.action, null);
+});

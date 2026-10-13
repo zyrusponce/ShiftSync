@@ -20,7 +20,13 @@ import {
   haptics,
   useReducedMotion,
 } from "../components/motion";
-import { answerScheduleQuestion } from "../domain/schedule";
+import {
+  answerScheduleQuestion,
+  findConflicts,
+  formatDate,
+  formatTime,
+} from "../domain/schedule";
+import { newItem } from "../domain/seed";
 import { useApp } from "../store/AppStore";
 import { api, isNetworkError } from "../services/api";
 import type { ChatAction } from "../domain/contract";
@@ -34,7 +40,12 @@ type Message = {
   /** A suggestion to review; CalenBud never changes the schedule itself. */
   action?: ChatAction | null;
   note?: string;
+  /** Set once the student has acted on the suggestion. */
+  done?: string;
 };
+type Proposal = Exclude<ChatAction, { type: "show_conflicts" }>;
+const when = (action: { date: string; start: string; end: string }) =>
+  `${formatDate(action.date)}, ${formatTime(action.start)}–${formatTime(action.end)}`;
 // Three softly pulsing dots, shown only while a reply is actually pending.
 function TypingDots() {
   const theme = useTheme();
@@ -92,7 +103,7 @@ const prompts = [
   "Optimize my schedule",
 ];
 export function ChatScreen({ navigation }: StackProps<"Chat">) {
-  const { data, account } = useApp();
+  const { data, account, saveItem, deleteItem } = useApp();
   const theme = useTheme();
   const inset = useSafeAreaInsets();
   const mounted = useRef(true);
@@ -100,7 +111,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
     {
       id: 0,
       user: false,
-      text: "Hey! I'm CalenBud. I can help you understand your schedule, spot conflicts, and find a little breathing room. What would you like to check?",
+      text: "Hey! I'm CalenBud. I can answer questions about your schedule, add or remove things, and help fix conflicts. You always confirm before anything changes. What do you need?",
     },
   ]);
   const [text, setText] = useState("");
@@ -140,6 +151,89 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
         end: action.end,
       },
     });
+  };
+  const markDone = (id: number, done: string) =>
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id ? { ...message, done } : message,
+      ),
+    );
+  const addItem = (
+    message: Message,
+    action: Extract<ChatAction, { type: "add_item" }>,
+  ) => {
+    const item = {
+      ...newItem(action.kind, action.date),
+      title: action.title,
+      start: action.start,
+      end: action.end,
+      category: action.category,
+      location: action.location,
+    };
+    const error = saveItem(item);
+    if (error) {
+      Alert.alert("Couldn't add this", error);
+      return;
+    }
+    haptics.tap();
+    markDone(message.id, "Added to your schedule");
+    // Tell the student straight away if the new item collides with something.
+    const clash = findConflicts(
+      [...data.items, item],
+      data.availability,
+      data.preferences,
+      action.date,
+      1,
+    ).find((c) => c.first.id === item.id || c.second?.id === item.id);
+    if (clash)
+      setMessages((current) => [
+        ...current,
+        {
+          id: Date.now(),
+          user: false,
+          text: `Heads up: ${action.title} overlaps another commitment at that time. Want to sort it out?`,
+          action: {
+            type: "resolve_conflict",
+            conflictId: clash.id,
+            title: [clash.first.title, clash.second?.title]
+              .filter(Boolean)
+              .join(" and "),
+          },
+        },
+      ]);
+  };
+  const removeItem = (
+    message: Message,
+    action: Extract<ChatAction, { type: "remove_item" }>,
+  ) => {
+    if (!data.items.some((item) => item.id === action.itemId)) {
+      markDone(message.id, "Already removed");
+      return;
+    }
+    Alert.alert(
+      "Remove from your schedule?",
+      `${action.title}\n${when(action)}`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            deleteItem(action.itemId);
+            haptics.tap();
+            markDone(message.id, "Removed from your schedule");
+          },
+        },
+      ],
+    );
+  };
+  const act = (message: Message, action: Proposal) => {
+    if (action.type === "add_item") addItem(message, action);
+    else if (action.type === "remove_item") removeItem(message, action);
+    else if (action.type === "resolve_conflict") {
+      haptics.tap();
+      navigation.navigate("Resolve", { conflictId: action.conflictId });
+    } else preview(action);
   };
   const send = async (question: string) => {
     if (!question.trim() || typing || !data.preferences.aiEnabled) return;
@@ -249,22 +343,52 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
                     {message.note}
                   </Label>
                 )}
-                {message.action?.type === "change_shift" && (
-                  <View style={{ marginTop: 12 }}>
-                    <Button
-                      small
-                      icon="time-outline"
-                      onPress={() =>
-                        message.action?.type === "change_shift" &&
-                        preview(message.action)
-                      }
-                    >
-                      Preview Shift Change
-                    </Button>
+                {message.action && message.action.type !== "show_conflicts" && (
+                  <View style={{ marginTop: 12, gap: 8 }}>
+                    {(message.action.type === "add_item" ||
+                      message.action.type === "remove_item") && (
+                      <Label size={13}>
+                        {message.action.title}
+                        {"\n"}
+                        {when(message.action)}
+                      </Label>
+                    )}
+                    {message.done ? (
+                      <Badge>{message.done}</Badge>
+                    ) : (
+                      <Button
+                        small
+                        variant={
+                          message.action.type === "remove_item"
+                            ? "secondary"
+                            : "primary"
+                        }
+                        icon={
+                          message.action.type === "add_item"
+                            ? "add-circle-outline"
+                            : message.action.type === "remove_item"
+                              ? "trash-outline"
+                              : "time-outline"
+                        }
+                        onPress={() =>
+                          message.action &&
+                          message.action.type !== "show_conflicts" &&
+                          act(message, message.action)
+                        }
+                      >
+                        {message.action.type === "add_item"
+                          ? "Add to my schedule"
+                          : message.action.type === "remove_item"
+                            ? "Remove from my schedule"
+                            : message.action.type === "resolve_conflict"
+                              ? "Resolve this conflict"
+                              : "Preview Shift Change"}
+                      </Button>
+                    )}
                   </View>
                 )}
                 {!message.user &&
-                  message.action?.type !== "change_shift" &&
+                  (!message.action || message.action.type === "show_conflicts") &&
                   (message.action?.type === "show_conflicts" ||
                     /conflict|issue|alternatives/i.test(message.text)) && (
                     <View style={{ marginTop: 12, gap: 8 }}>
@@ -354,7 +478,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
               <TextInput
                 ref={input}
                 accessibilityLabel="Message CalenBud"
-                placeholder="Ask about your schedule…"
+                placeholder="Ask, or say 'add dentist tomorrow 3pm'…"
                 placeholderTextColor={theme.muted}
                 value={text}
                 onChangeText={setText}
