@@ -170,6 +170,9 @@ const CHAT_RULES = [
   "If they ask to see or fix conflicts, you may set action.type to 'show_conflicts'. Otherwise set action.type to 'none'.",
   "Do not include email addresses or links. Keep replies under 120 words, warm and concise.",
 ].join(" ");
+/** Past-tense claims that the schedule was already changed. */
+const CLAIMS_DONE =
+  /\b(?:i['’]?ve|i have|i just|has been|have been|was|were|is now|are now|successfully)\s+(?:\w+\s+){0,2}(?:added|removed|deleted|scheduled|rescheduled|moved|booked|saved|resolved|cancell?ed|created|updated)\b|\ball set\b|\b(?:added|removed|deleted|scheduled|booked|saved)\s+(?:it|that|this|them)\b/i;
 const CHAT_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -305,9 +308,13 @@ export async function chatReply(
     summary: {},
   };
   const reply = typeof result?.reply === "string" ? result.reply.trim() : "";
+  // Nothing is saved until the student taps a button, so a reply that says
+  // it already happened is untrue and is replaced.
+  const claimsDone = CLAIMS_DONE.test(reply);
   if (
     !reply ||
     reply.length > 1500 ||
+    claimsDone ||
     groundingProblem(reply, allowed, { allowRelative: true })
   ) {
     if (change) {
@@ -325,6 +332,16 @@ export async function chatReply(
         fallbackReason: "AI_OUTPUT_REJECTED",
       };
     }
+    if (claimsDone)
+      return {
+        reply:
+          action?.type === "resolve_conflict"
+            ? "Nothing has been changed yet. Tap the button below to open the options for this conflict."
+            : "I haven't changed your schedule. To add something, tell me what it is, the date and the start time, for example \"dentist tomorrow at 3pm\", and I'll prepare it for you to confirm.",
+        source: "rules",
+        action,
+        fallbackReason: "AI_OUTPUT_REJECTED",
+      };
     return rules("AI_OUTPUT_REJECTED");
   }
   return { reply, source: "ai", action };

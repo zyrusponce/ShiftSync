@@ -324,3 +324,36 @@ test("CalenBud proposes adding, removing and resolving, grounded in what was sai
   say("Opening it.", { type: "resolve_conflict", conflictId: "nope" });
   assert.equal((await ask("Fix my conflict")).body.action, null);
 });
+
+test("CalenBud never claims a change was already made", async () => {
+  const s = await student();
+  const ask = (text: string) =>
+    s.a.call("POST", "/api/ai/chat", { messages: [{ role: "user", text }] });
+  h.aiMode.current = {
+    kind: "ok",
+    reply: () => ({
+      reply: "Done! I've added the dentist appointment to your calendar.",
+      action: {
+        type: "add_item",
+        title: "Dentist appointment",
+        date: "2026-10-13",
+        start: "15:00",
+      },
+    }),
+  };
+  const proposed = await ask("Add a dentist appointment tomorrow at 3pm");
+  assert.equal(proposed.body.action?.type, "add_item");
+  assert.doesNotMatch(proposed.body.reply, /I've added/);
+  assert.match(proposed.body.reply, /Nothing is saved until you confirm/);
+
+  h.aiMode.current = {
+    kind: "ok",
+    reply: () => ({
+      reply: "All set, I added it to your schedule!",
+      action: { type: "none" },
+    }),
+  };
+  const empty = await ask("Add a dentist appointment");
+  assert.equal(empty.body.action, null);
+  assert.match(empty.body.reply, /haven't changed your schedule/);
+});
