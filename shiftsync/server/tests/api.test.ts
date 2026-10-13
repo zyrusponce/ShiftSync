@@ -342,7 +342,7 @@ test("9, 10, 14. the student picks recipients; each message is separate and AI-s
   assert.equal(professor.body.source, "ai");
   assert.match(
     professor.body.notification.body,
-    /^Dear Prof\. Reyes,\n\nMy work shift[^\n]+\n\nCould we discuss options\?\n\nSincerely,\n.+$/,
+    /^Dear Prof\. Reyes,\n\nMy work shift[^\n]+\n\n• Date: [^\n]+\n• Evening shift \(work shift\): 9:00 AM–2:00 PM\n• Statistics class \(class\): 1:00 PM–3:00 PM\n\nCould we discuss options\?\n\nSincerely,\n.+$/,
   );
   assert.notEqual(professor.body.notification.id, message.id);
   h.aiMode.current = {
@@ -350,7 +350,9 @@ test("9, 10, 14. the student picks recipients; each message is separate and AI-s
     reply: () => ({
       subject: "Conflict",
       greeting: "Hi Dana",
-      paragraphs: ["Could I come in at 6:00 PM instead? I will be there tomorrow."],
+      paragraphs: [
+        "Could I come in at 6:00 PM instead? I will be there tomorrow.",
+      ],
       closing: "Thanks",
     }),
   };
@@ -511,11 +513,24 @@ test("9-12. Gmail drafts and confirmed sends, with truthful statuses", async () 
   assert.equal(h.google.sent.length, 1);
   const raw = Buffer.from(h.google.sent[0].raw, "base64url").toString("utf8");
   assert.match(raw, /^To: "Dana Cruz" <manager@example\.com>/m);
-  const bodyText = Buffer.from(
-    raw.split("\r\n\r\n")[1].replace(/\r\n/g, ""),
-    "base64",
-  ).toString("utf8");
+  // Sent as multipart/alternative: the plain text unchanged, plus HTML.
+  const boundary = /boundary="([^"]+)"/.exec(raw)![1];
+  const part = (type: string) => {
+    const section = raw
+      .split(`--${boundary}`)
+      .find((value) => value.includes(`Content-Type: ${type};`))!;
+    return Buffer.from(
+      section.split("\r\n\r\n")[1].replace(/\r\n/g, ""),
+      "base64",
+    ).toString("utf8");
+  };
+  const bodyText = part("text/plain");
   assert.match(bodyText, /Thursday/);
+  assert.doesNotMatch(bodyText, /<[a-z]/i, "the plain part has no markup");
+  const html = part("text/html");
+  assert.match(html, /<strong>Evening shift<\/strong>/);
+  assert.match(html, /<ul[^>]*><li[^>]*><strong>Date:<\/strong>/);
+  assert.match(html, /<strong>[^<]*\?<\/strong>/, "the request is bold");
   // Retries never send twice.
   await s.a.call(
     "POST",
@@ -779,4 +794,36 @@ test("12b. all-day Google events import as non-blocking tasks", async () => {
   assert.equal(task.kind, "task");
   assert.equal(task.date, "2026-10-14");
   assert.equal(task.fixed, false);
+});
+
+test("the public site is served, without shadowing the API", async () => {
+  const page = async (path: string) => {
+    const response = await fetch(`${h.base}${path}`);
+    return {
+      status: response.status,
+      type: response.headers.get("content-type"),
+      body: await response.text(),
+    };
+  };
+  const home = await page("/");
+  assert.equal(home.status, 200);
+  assert.match(home.type!, /text\/html/);
+  assert.match(home.body, /<title>ShiftSync/);
+  // Google's consent screen links to these; both work without ".html".
+  for (const path of ["/privacy", "/terms"]) {
+    const found = await page(path);
+    assert.equal(found.status, 200, path);
+    assert.match(found.body, /Zyrus Ponce/);
+  }
+  assert.match(
+    (await page("/privacy")).body,
+    /Google API Services User Data Policy/,
+  );
+  assert.equal((await page("/style.css")).status, 200);
+  // A missing page is still the API's JSON 404, and endpoints are untouched.
+  const missing = await page("/nope");
+  assert.equal(missing.status, 404);
+  assert.equal(JSON.parse(missing.body).error.code, "NOT_FOUND");
+  assert.equal((await page("/health")).status, 200);
+  assert.equal((await h.user("a@b.c").call("GET", "/api/events")).status, 200);
 });

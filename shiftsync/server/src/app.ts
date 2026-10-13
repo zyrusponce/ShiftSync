@@ -1,3 +1,4 @@
+import path from "node:path";
 import express, {
   type NextFunction,
   type Request,
@@ -114,6 +115,16 @@ export function createApp(deps: Deps) {
   api.use(communicationRoutes(deps));
   api.use(googleRoutes(deps));
   app.use("/api", api);
+  // The public site: home page, privacy policy and terms, which Google's
+  // OAuth consent screen links to. Served after /api so an endpoint can
+  // never be shadowed by a file. "/privacy" works without the extension.
+  app.use(
+    express.static(path.resolve(__dirname, "../public"), {
+      extensions: ["html"],
+      maxAge: "1h",
+      redirect: false,
+    }),
+  );
   app.use(() => {
     throw new AppError("NOT_FOUND", "That endpoint does not exist.");
   });

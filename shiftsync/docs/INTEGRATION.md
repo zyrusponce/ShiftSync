@@ -76,7 +76,7 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:4000
 ### 4. Sign in with Google, Calendar and Gmail (optional)
 
 1. In Google Cloud Console, enable the **Google Calendar API** and **Gmail API**.
-2. Configure the OAuth consent screen and add the scopes `openid`, `email`, `profile`, `…/auth/calendar.events` and `…/auth/gmail.compose`. `gmail.compose` is a _restricted_ scope: keep the app in **Testing** and add each tester's Google account under _Test users_. Publishing for everyone requires Google's verification and security assessment.
+2. Configure the OAuth consent screen and add the scopes `openid`, `email`, `profile`, `…/auth/calendar.events` and `…/auth/gmail.compose`. `gmail.compose` is a _restricted_ scope: keep the app in **Testing** and add each tester's Google account under _Test users_. Publishing for everyone requires Google's verification and security assessment — see [Opening sign-in to everyone](#opening-sign-in-to-everyone).
 3. Create an OAuth client of type **Web application**. Add `GOOGLE_REDIRECT_URI` (e.g. `https://your-api-host/api/google/callback`) to _Authorized redirect URIs_. The existing `VITE_GOOGLE_CLIENT_ID` can be reused only if it is a Web client and you have its secret.
 4. Put the four `GOOGLE_*` values in `server/.env` and restart the server.
 5. **For Sign in with Google**, in the Supabase dashboard go to **Authentication → Sign In / Providers → Google**, turn it on, and enter the same Web client ID and secret. The server signs students in with the Google ID token it receives (`signInWithIdToken`), so this client ID must be allowed there. If it is off, the app shows "Google sign-in isn't enabled" and email login still works. Google and email accounts with the same address are linked by Supabase.
@@ -88,6 +88,20 @@ In the app:
 - Students who use email can link Google later in **Profile → Connected Services → Connect Google**.
 
 The redirect URI must be reachable from the phone's browser. For local testing, `http://localhost:4000/api/google/callback` works on an emulator or USB-connected phone after `adb reverse tcp:4000 tcp:4000`. Otherwise use an https deployment or tunnel.
+
+#### Opening sign-in to everyone
+
+While the Google app is in **Testing**, only accounts on its test-user list can sign in. Publishing it to **Production** opens it to anyone, but how much review Google asks for depends on the scopes requested at consent:
+
+| Scope                                 | Google's category | Needed to go public                               |
+| ------------------------------------- | ----------------- | ------------------------------------------------- |
+| `openid`, `email`, `profile`          | Basic             | Nothing beyond publishing                         |
+| `calendar.events`                     | Sensitive         | App verification (free, days to weeks)            |
+| `gmail.compose`                       | **Restricted**    | Verification **and a yearly security assessment** |
+
+The consent screen needs a home page, a privacy policy and terms, all on a domain you own. The server hosts them at `/`, `/privacy` and `/terms` from [`server/public`](../server/public); they describe the current behaviour, so update them when the data handling changes. Google requires the domain in _Authorized domains_ to be one you can verify in Search Console, so a `*.onrender.com` address is usually not enough: point a custom domain at the Render service and use that.
+
+Asking for less at sign-in is the quickest route. `signInWithGoogle` currently requests Calendar and Gmail in the same consent (`ALL_SERVICES` in [`routes/google.ts`](../server/src/routes/google.ts)); narrowing it to the identity scopes would let sign-in go public with no verification, leaving **Profile → Connected Services** to request Calendar when it is actually used.
 
 ### 5. Deploy the API for APK builds (Render)
 
