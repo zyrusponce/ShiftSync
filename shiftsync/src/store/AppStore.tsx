@@ -13,7 +13,12 @@ import { createEmptyData, createInitialData } from "../domain/seed";
 import { rescheduleOccurrence, validateItem } from "../domain/schedule";
 import { isValidContact, restoreData } from "../domain/persistence";
 import { newItem } from "../domain/seed";
-import type { AuthUser, Session } from "../domain/contract";
+import type {
+  AuthUser,
+  CalendarSyncResponse,
+  Session,
+} from "../domain/contract";
+import { shiftChanges, shiftNotice } from "../domain/notify";
 import type {
   AppData,
   AvailabilityDay,
@@ -34,11 +39,19 @@ import {
 } from "../services/api";
 import { clearSession, loadSession, saveSession } from "../services/session";
 import { signInWithGoogle as googleSignIn } from "../services/googleSignIn";
+import {
+  announceSyncProblem,
+  clearSyncProblem,
+  presentNow,
+} from "../services/notifications";
 import { diffOps, enqueue, flushQueue, mergeServer, type Op } from "./sync";
 
 const STORAGE_KEY = "@shiftsync/local/v1";
 const accountKey = (id: string) => `@shiftsync/account/${id}/v1`;
 const outboxKey = (id: string) => `@shiftsync/outbox/${id}/v1`;
+/** Where the CalenBud conversation is kept; a null id is the on-device demo. */
+export const chatKey = (id: string | null) =>
+  `@shiftsync/chat/${id ?? "local"}/v1`;
 const deviceTimeZone = () =>
   Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Manila";
 
@@ -47,6 +60,15 @@ export type SyncStatus = {
   message: string | null;
   pending: number;
 };
+/** How a Google Calendar sync ended; failures are thrown as ApiError. */
+export type CalendarSyncOutcome =
+  | { status: "synced"; result: CalendarSyncResponse }
+  /** The on-device demo has no account to connect Google to. */
+  | { status: "no_account" }
+  | { status: "not_configured" }
+  | { status: "not_connected" }
+  /** Connected once, but Google access expired or was revoked. */
+  | { status: "reconnect" };
 type Store = {
   data: AppData;
   loading: boolean;
@@ -61,6 +83,8 @@ type Store = {
   /** Sends queued changes; resolves true when nothing is left to send. */
   flush: () => Promise<boolean>;
   refresh: () => Promise<void>;
+  /** Imports Google Calendar now; repeated calls share the sync in progress. */
+  syncGoogleCalendar: () => Promise<CalendarSyncOutcome>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (
     name: string,
@@ -139,6 +163,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPull = useRef(0);
   const lastCalendarSync = useRef(0);
+  const calendarSync = useRef<Promise<CalendarSyncOutcome> | null>(null);
   const pullRef = useRef<(afterRejection?: boolean) => Promise<void>>(
     async () => {},
   );
@@ -168,6 +193,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await AsyncStorage.multiRemove([
           accountKey(user.id),
           outboxKey(user.id),
+          chatKey(user.id),
         ]).catch(() => undefined);
       queueRef.current = [];
       const local = restoreOr(
@@ -238,6 +264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Edits made while loading are newer; the next refresh catches up.
         if (queueRef.current.length || !sessionRef.current) return;
         lastPull.current = Date.now();
+        const before = dataRef.current.items;
         show(
           mergeServer(dataRef.current, {
             items: events.items,
@@ -246,8 +273,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             conflicts: conflicts.conflicts,
           }),
         );
-        if (!afterRejection)
+        if (!afterRejection) {
           setSync((s) => ({ ...s, state: "idle", message: null }));
+          // Shifts changed elsewhere (Google Calendar, another phone). A
+          // refused local edit is not news, so rejections stay quiet.
+          const changes = shiftChanges(before, events.items);
+          if (
+            changes.length &&
+            dataRef.current.preferences.shiftNotifications
+          ) {
+            const notice = shiftNotice(changes);
+            void presentNow(notice.title, notice.body, notice.target);
+          }
+        }
       } catch (error) {
         if (error instanceof ApiError && error.code === "UNAUTHORIZED")
           await leaveAccount(
@@ -292,23 +330,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [persistQueue, scheduleFlush, show],
   );
 
+  // One Google Calendar import at a time: a second request while one is
+  // running waits for the same result instead of starting another.
+  const runCalendarSync = useCallback((): Promise<CalendarSyncOutcome> => {
+    if (!sessionRef.current) return Promise.resolve({ status: "no_account" });
+    calendarSync.current ??= (async (): Promise<CalendarSyncOutcome> => {
+      const status = await api.googleStatus();
+      if (!status.configured) return { status: "not_configured" };
+      if (!status.connected || !status.calendar)
+        return { status: "not_connected" };
+      if (status.needsReconnect) return { status: "reconnect" };
+      let result: CalendarSyncResponse;
+      try {
+        result = await api.syncCalendar();
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "GOOGLE_NOT_CONNECTED")
+          return { status: "reconnect" };
+        throw error;
+      }
+      lastCalendarSync.current = Date.now();
+      // The refreshed schedule also re-checks conflicts with the new events.
+      if (result.imported || result.updated) await pullRef.current();
+      const user = sessionRef.current?.user;
+      if (user) void clearSyncProblem(user.id);
+      return { status: "synced", result };
+    })().finally(() => {
+      calendarSync.current = null;
+    });
+    return calendarSync.current;
+  }, []);
   // Brings in Google Calendar changes after sign-in and when the app reopens.
   const syncCalendar = useCallback(async () => {
-    if (
-      !sessionRef.current ||
-      Date.now() - lastCalendarSync.current < 15 * 60_000
-    )
-      return;
+    const user = sessionRef.current?.user;
+    if (!user || Date.now() - lastCalendarSync.current < 15 * 60_000) return;
     lastCalendarSync.current = Date.now();
     try {
-      const status = await api.googleStatus();
-      if (!status.calendar || status.needsReconnect) return;
-      const result = await api.syncCalendar();
-      if (result.imported || result.updated) await pullRef.current();
-    } catch {
-      // Sync problems are shown on Profile → Connected Services.
+      const outcome = await runCalendarSync();
+      if (outcome.status === "reconnect")
+        void announceSyncProblem(
+          user.id,
+          "Reconnect Google Calendar",
+          "Google stopped allowing ShiftSync to read your calendar. Tap to reconnect your account.",
+        );
+    } catch (error) {
+      // Being offline is temporary and retried on the next open, so only
+      // real failures are worth an alert.
+      if (
+        error instanceof ApiError &&
+        !error.transient &&
+        error.code !== "UNAUTHORIZED"
+      )
+        void announceSyncProblem(
+          user.id,
+          "Calendar Sync Failed",
+          "We couldn't synchronize your Google Calendar. Tap to try again.",
+        );
     }
-  }, []);
+  }, [runCalendarSync]);
 
   const adopt = useCallback(
     async (session: Session) => {
@@ -438,6 +516,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sync,
       flush,
       refresh: () => pull(),
+      syncGoogleCalendar: runCalendarSync,
       dismissSyncMessage: () =>
         setSync((current) => ({ ...current, state: "idle", message: null })),
       saveItem,
@@ -595,6 +674,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sync,
       flush,
       pull,
+      runCalendarSync,
       saveItem,
       adopt,
       commit,

@@ -1,6 +1,9 @@
-import React, { useState } from "react";
-import { Alert, Switch, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { AppState, Platform, Switch } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import { dialog } from "../components/dialog";
 import {
+  Button,
   Card,
   Choice,
   Header,
@@ -13,6 +16,16 @@ import {
 import { useApp } from "../store/AppStore";
 import type { Preferences } from "../domain/types";
 import { TRAVEL_OPTIONS } from "../domain/persistence";
+import { REMINDER_LEADS, reminderLead } from "../domain/notify";
+import {
+  openSystemSettings,
+  permissionState,
+  requestPermission,
+  scheduledReminderCount,
+  setNotificationSettings,
+  useNotificationSettings,
+  type PermissionState,
+} from "../services/notifications";
 import type { StackProps } from "../navigation/types";
 import { palette } from "../theme";
 
@@ -111,7 +124,7 @@ export function SettingsScreen({ route, navigation }: StackProps<"Settings">) {
               icon="key-outline"
               title="Password"
               onPress={() =>
-                Alert.alert(
+                dialog.alert(
                   account ? "Password" : "Local demo",
                   account
                     ? "Changing your password isn't available in the app yet. Ask the ShiftSync team for a reset link."
@@ -156,7 +169,7 @@ export function SettingsScreen({ route, navigation }: StackProps<"Settings">) {
               title="Time zone"
               detail={preferences.timeZone}
               onPress={() =>
-                Alert.alert(
+                dialog.alert(
                   "Device time zone",
                   "ShiftSync follows the time zone on your phone. Change the device time zone in system settings to use a different region. Event times are saved as local calendar times.",
                 )
@@ -190,14 +203,35 @@ export function SettingsScreen({ route, navigation }: StackProps<"Settings">) {
       {show("Notifications") && (
         <>
           <Section title="Notifications" />
+          <NotificationPermissionCard />
           <Card>
-            {toggle("reminders", "Event reminders")}
-            {toggle("conflictAlerts", "Conflict alerts")}
-            {toggle("shiftNotifications", "Shift notifications")}
+            {toggle(
+              "conflictAlerts",
+              "Conflict alerts",
+              "When commitments overlap",
+            )}
+            {toggle(
+              "shiftNotifications",
+              "Shift notifications",
+              "Shift changes and upcoming shifts",
+            )}
+            {toggle(
+              "reminders",
+              "Event reminders",
+              "Before classes, events and task deadlines",
+            )}
+            <LocalToggle
+              setting="syncAlerts"
+              icon="sync-outline"
+              title="Calendar sync problems"
+              detail="When Google Calendar needs attention"
+            />
           </Card>
+          <NotificationDeliveryCard />
           <Label tone="muted" size={12}>
-            These preferences control the in-app notification list. Push
-            delivery needs a notification service.
+            The red badge on Conflicts and the Conflicts list always stay on,
+            even when alerts are off. Silent mode, Do Not Disturb and your
+            phone's notification settings always apply.
           </Label>
         </>
       )}
@@ -287,5 +321,172 @@ export function SettingsScreen({ route, navigation }: StackProps<"Settings">) {
           ))}
       </Sheet>
     </Screen>
+  );
+}
+
+// Notification switches that belong to this phone rather than the account.
+function LocalToggle({
+  setting,
+  icon,
+  title,
+  detail,
+}: {
+  setting: "sound" | "vibration" | "syncAlerts";
+  icon: React.ComponentProps<typeof Row>["icon"];
+  title: string;
+  detail?: string;
+}) {
+  const settings = useNotificationSettings();
+  return (
+    <Row
+      icon={icon}
+      title={title}
+      detail={detail}
+      trailing={
+        <Switch
+          accessibilityLabel={title}
+          value={settings[setting]}
+          onValueChange={(value) =>
+            setNotificationSettings({ [setting]: value })
+          }
+          trackColor={{ false: palette.beige, true: palette.teal }}
+          thumbColor="#FFFDF8"
+        />
+      }
+    />
+  );
+}
+
+/** Re-checks permission when the screen is shown or the app returns. */
+function usePermission() {
+  const [permission, setPermission] = useState<PermissionState | null>(null);
+  const check = useCallback(() => {
+    void permissionState().then(setPermission);
+  }, []);
+  useFocusEffect(check);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") check();
+    });
+    return () => subscription.remove();
+  }, [check]);
+  return [permission, setPermission] as const;
+}
+
+function NotificationPermissionCard() {
+  const [permission, setPermission] = usePermission();
+  if (!permission || permission.status === "granted") return null;
+  const blocked = permission.status === "denied" && !permission.canAskAgain;
+  return (
+    <Card>
+      <Label weight="semibold">
+        {permission.status === "unsupported"
+          ? "Notifications aren't available here"
+          : "Notifications are off"}
+      </Label>
+      <Label tone="muted" size={13} style={{ marginTop: 8, marginBottom: 12 }}>
+        {permission.status === "unsupported"
+          ? "Phone notifications work in the Android and iOS app."
+          : blocked
+            ? "ShiftSync can't alert you about conflicts, shift changes or reminders until you allow notifications in your phone's settings."
+            : "Allow notifications so ShiftSync can alert you about overlapping commitments, shift changes, upcoming events and calendar sync problems."}
+      </Label>
+      {permission.status !== "unsupported" && (
+        <Button
+          small
+          icon="notifications-outline"
+          onPress={async () => {
+            if (blocked) void openSystemSettings();
+            else setPermission(await requestPermission());
+          }}
+        >
+          {blocked ? "Open Phone Settings" : "Allow Notifications"}
+        </Button>
+      )}
+    </Card>
+  );
+}
+
+function NotificationDeliveryCard() {
+  const settings = useNotificationSettings();
+  const [permission] = usePermission();
+  const [timingOpen, setTimingOpen] = useState(false);
+  const [scheduled, setScheduled] = useState<number | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      // Read back from the OS once the latest reschedule has had a moment.
+      const timer = setTimeout(
+        () => void scheduledReminderCount().then(setScheduled),
+        1200,
+      );
+      return () => clearTimeout(timer);
+    }, [settings]),
+  );
+  const timing =
+    settings.reminderLead === null
+      ? "As set on each event"
+      : (REMINDER_LEADS.find(
+          (lead) => reminderLead(lead) === settings.reminderLead,
+        ) ?? `${settings.reminderLead} minutes before`);
+  return (
+    <>
+      <Card>
+        <LocalToggle
+          setting="sound"
+          icon="volume-medium-outline"
+          title="Sound"
+          detail="Plays your phone's notification sound"
+        />
+        {/* iOS vibration follows the phone's own sound and haptics settings. */}
+        {Platform.OS === "android" && (
+          <LocalToggle
+            setting="vibration"
+            icon="phone-portrait-outline"
+            title="Vibration"
+          />
+        )}
+        <Row
+          icon="alarm-outline"
+          title="Reminder timing"
+          detail={timing}
+          onPress={() => setTimingOpen(true)}
+        />
+        {permission?.status === "granted" && scheduled !== null && (
+          <Row
+            icon="checkmark-done-outline"
+            title="Scheduled on this phone"
+            detail={
+              scheduled
+                ? `${scheduled} upcoming reminder${scheduled === 1 ? "" : "s"} in the next 7 days`
+                : "No reminders in the next 7 days"
+            }
+          />
+        )}
+      </Card>
+      <Sheet
+        visible={timingOpen}
+        title="Reminder timing"
+        onClose={() => setTimingOpen(false)}
+      >
+        <Label tone="muted" size={13} style={{ marginBottom: 12 }}>
+          Applies to events, shifts and tasks that have a reminder on. Items set
+          to “None” stay quiet.
+        </Label>
+        {[null, ...REMINDER_LEADS].map((lead) => {
+          const value = lead === null ? null : reminderLead(lead);
+          return (
+            <Choice
+              key={lead ?? "own"}
+              label={lead ?? "As set on each event"}
+              selected={settings.reminderLead === value}
+              onPress={() => {
+                setNotificationSettings({ reminderLead: value });
+                setTimingOpen(false);
+              }}
+            />
+          );
+        })}
+      </Sheet>
+    </>
   );
 }

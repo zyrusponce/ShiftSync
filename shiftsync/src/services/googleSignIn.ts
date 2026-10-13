@@ -5,7 +5,7 @@
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import type { Session } from "../domain/contract";
+import type { GoogleStatus, Session } from "../domain/contract";
 import { ApiError, api } from "./api";
 
 const ALPHABET =
@@ -54,4 +54,23 @@ export async function signInWithGoogle(): Promise<Session | null> {
           "Google sign-in didn't finish. Please try again.",
         );
   return api.googleLoginComplete(params.handle, verifier);
+}
+
+/**
+ * Connects Google Calendar and Gmail to the signed-in account. Resolves to
+ * the new status, or null if the student closed or declined the consent page.
+ */
+export async function connectGoogle(): Promise<GoogleStatus | null> {
+  const returnUrl = Linking.createURL("oauth/google");
+  const { authUrl } = await api.googleConnect(["calendar", "gmail"], returnUrl);
+  const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
+  if (result.type !== "success") return null;
+  const params = Linking.parse(result.url).queryParams ?? {};
+  if (params.status === "cancelled") return null;
+  if (params.status !== "ok" || typeof params.handle !== "string")
+    throw new ApiError(
+      "GOOGLE_NOT_CONNECTED",
+      "Google didn't finish connecting. Please try again.",
+    );
+  return api.googleComplete(params.handle);
 }

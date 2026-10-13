@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
-import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
+import { ActivityIndicator, View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Badge,
   Button,
@@ -24,6 +23,7 @@ import { palette } from "../theme";
 import type { GoogleStatus } from "../domain/contract";
 import { api, messageOf } from "../services/api";
 import { accountsEnabled, usesLocalhost } from "../services/config";
+import { connectGoogle } from "../services/googleSignIn";
 
 export function SearchScreen({ navigation }: StackProps<"Search">) {
   const { data } = useApp();
@@ -164,7 +164,7 @@ export function ProfileScreen({ navigation }: StackProps<"Profile">) {
         variant="ghost"
         icon="log-out-outline"
         onPress={() =>
-          Alert.alert(
+          dialog.alert(
             account ? "Log out?" : "Log out of the demo?",
             account
               ? sync.pending
@@ -172,7 +172,7 @@ export function ProfileScreen({ navigation }: StackProps<"Profile">) {
                 : "Your schedule stays safe in your account. It is removed from this phone until you log in again."
               : "Your schedule stays on this device. This demo is not an authenticated account.",
             [
-              { text: "Stay here", style: "cancel" },
+              { text: "Stay Logged In", style: "cancel" },
               {
                 text: "Log Out",
                 style: sync.pending ? "destructive" : "default",
@@ -266,7 +266,7 @@ export function PersonalInfoScreen({ navigation }: StackProps<"PersonalInfo">) {
 export function ConnectedCalendarsScreen({
   navigation,
 }: StackProps<"ConnectedCalendars">) {
-  const { account, refresh } = useApp();
+  const { account, syncGoogleCalendar } = useApp();
   const [status, setStatus] = useState<GoogleStatus | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<null | "connect" | "sync" | "disconnect">(
@@ -285,29 +285,15 @@ export function ConnectedCalendarsScreen({
   const connect = async () => {
     setBusy("connect");
     try {
-      const returnUrl = Linking.createURL("oauth/google");
-      const { authUrl } = await api.googleConnect(
-        ["calendar", "gmail"],
-        returnUrl,
-      );
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
-      if (result.type !== "success") return;
-      const params = Linking.parse(result.url).queryParams ?? {};
-      if (params.status !== "ok" || typeof params.handle !== "string") {
-        haptics.warning();
-        Alert.alert(
-          "Google wasn't connected",
-          params.status === "cancelled"
-            ? "You cancelled the Google permission screen."
-            : "Google didn't finish connecting. Please try again.",
-        );
-        return;
-      }
-      setStatus(await api.googleComplete(params.handle));
+      const next = await connectGoogle();
+      if (!next) return;
+      setStatus(next);
       haptics.success();
     } catch (failure) {
       haptics.error();
-      Alert.alert("Google wasn't connected", messageOf(failure));
+      dialog.alert("Google wasn't connected", messageOf(failure), undefined, {
+        tone: "warning",
+      });
     } finally {
       setBusy(null);
     }
@@ -315,37 +301,54 @@ export function ConnectedCalendarsScreen({
   const syncNow = async () => {
     setBusy("sync");
     try {
-      const result = await api.syncCalendar();
-      await refresh();
+      const outcome = await syncGoogleCalendar();
+      if (outcome.status !== "synced") {
+        haptics.warning();
+        dialog.alert(
+          "Sync didn't start",
+          outcome.status === "reconnect"
+            ? "Google access expired. Reconnect Google to keep your calendar in sync."
+            : "Connect Google Calendar first.",
+          undefined,
+          { tone: "warning" },
+        );
+        load();
+        return;
+      }
+      const { result } = outcome;
       haptics.success();
       const skipped = result.skipped.map(
         (s) => `${s.count} skipped: ${s.reason.toLowerCase()}`,
       );
-      Alert.alert(
+      dialog.alert(
         "Calendar synced",
         [
           `${result.imported} new, ${result.updated} updated, ${result.unchanged} unchanged.`,
           ...skipped,
           ...result.needsReview.map((title) => `Needs review: ${title}.`),
         ].join("\n"),
+        [{ text: "Done" }],
+        { tone: "success" },
       );
       load();
     } catch (failure) {
       haptics.error();
-      Alert.alert("Sync didn't finish", messageOf(failure));
+      dialog.alert("Sync didn't finish", messageOf(failure), undefined, {
+        tone: "warning",
+      });
       load();
     } finally {
       setBusy(null);
     }
   };
   const disconnect = () =>
-    Alert.alert(
+    dialog.alert(
       "Disconnect Google?",
       "ShiftSync will stop reading your calendar and can't save Gmail drafts or send email. Events already imported stay in ShiftSync.",
       [
-        { text: "Keep connected", style: "cancel" },
+        { text: "Keep Connected", style: "cancel" },
         {
-          text: "Disconnect",
+          text: "Disconnect Google",
           style: "destructive",
           onPress: async () => {
             setBusy("disconnect");
@@ -353,7 +356,9 @@ export function ConnectedCalendarsScreen({
               setStatus(await api.googleDisconnect());
               haptics.tap();
             } catch (failure) {
-              Alert.alert("Still connected", messageOf(failure));
+              dialog.alert("Still connected", messageOf(failure), undefined, {
+                tone: "warning",
+              });
             } finally {
               setBusy(null);
             }

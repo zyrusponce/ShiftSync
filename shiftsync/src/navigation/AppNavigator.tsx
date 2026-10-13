@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,6 +18,7 @@ import {
   NavigationContainer,
   DefaultTheme,
   DarkTheme,
+  createNavigationContainerRef,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import {
@@ -34,6 +36,7 @@ import {
   type IconName,
 } from "../components/ui";
 import {
+  Pop,
   PressableScale,
   durations,
   easing,
@@ -43,6 +46,7 @@ import {
   useReducedMotion,
 } from "../components/motion";
 import { useApp } from "../store/AppStore";
+import { dateKey, openConflicts } from "../domain/schedule";
 import { fonts, palette, useTheme } from "../theme";
 import type { ItemKind } from "../domain/types";
 import type { RootStackParamList, TabParamList } from "./types";
@@ -74,6 +78,8 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+/** Lets code outside the screens (notification taps) navigate. */
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const Tabs = createBottomTabNavigator<TabParamList>();
 const icons: Record<keyof TabParamList, [IconName, IconName]> = {
   Home: ["home", "home-outline"],
@@ -146,10 +152,13 @@ function TabIcon({
   name,
   focused,
   color,
+  alert = false,
 }: {
   name: keyof TabParamList;
   focused: boolean;
   color: string;
+  /** Shows the red badge for unresolved conflicts. */
+  alert?: boolean;
 }) {
   const theme = useTheme();
   const reduced = useReducedMotion();
@@ -195,6 +204,27 @@ function TabIcon({
         ]}
       />
       <Icon name={icons[name][focused ? 0 : 1]} color={color} size={23} />
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{ position: "absolute", top: 1, right: 6 }}
+      >
+        <Pop active={alert}>
+          {/* The ring in the tab bar color keeps the badge crisp where it
+              overlaps the icon's corner. */}
+          <View
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: 6,
+              borderWidth: 2,
+              borderColor: theme.surface,
+              backgroundColor: theme.badge,
+            }}
+          />
+        </Pop>
+      </View>
     </Animated.View>
   );
 }
@@ -227,6 +257,23 @@ function MainTabs() {
   const navigation = useRootNavigation();
   const reduced = useReducedMotion();
   const [addOpen, setAddOpen] = useState(false);
+  // The same open overlaps the Conflicts tab lists; resolving or dismissing
+  // the last one clears the badge.
+  const today = dateKey();
+  const hasConflicts = useMemo(
+    () =>
+      openConflicts(data, today).some(
+        (conflict) => conflict.type === "overlap",
+      ),
+    [
+      data.items,
+      data.availability,
+      data.preferences,
+      data.ignoredConflicts,
+      data.conflictStatus,
+      today,
+    ],
+  );
   const add = (kind: ItemKind) => {
     setAddOpen(false);
     navigation.navigate("ItemEditor", { kind });
@@ -234,6 +281,9 @@ function MainTabs() {
   return (
     <View style={{ flex: 1 }}>
       <Tabs.Navigator
+        // Device Back retraces the tabs the student actually visited (e.g.
+        // Conflicts → Calendar → Home) before leaving the app from Home.
+        backBehavior="history"
         screenListeners={({ navigation: tab }) => ({
           // Only when the selection actually changes (or the Add sheet opens).
           tabPress: () => {
@@ -269,7 +319,12 @@ function MainTabs() {
             route.name === "Add" ? (
               <AddTabIcon />
             ) : (
-              <TabIcon name={route.name} focused={focused} color={color} />
+              <TabIcon
+                name={route.name}
+                focused={focused}
+                color={color}
+                alert={route.name === "Conflicts" && hasConflicts}
+              />
             ),
         })}
       >
@@ -289,7 +344,15 @@ function MainTabs() {
               "Add event, shift, task, or unavailable time",
           }}
         />
-        <Tabs.Screen name="Conflicts" component={ConflictsScreen} />
+        <Tabs.Screen
+          name="Conflicts"
+          component={ConflictsScreen}
+          options={{
+            tabBarAccessibilityLabel: hasConflicts
+              ? "Conflicts, unresolved schedule conflicts"
+              : "Conflicts",
+          }}
+        />
         <Tabs.Screen name="Shifts" component={ShiftsScreen} />
       </Tabs.Navigator>
       {data.preferences.aiEnabled && (
@@ -361,6 +424,7 @@ export function AppNavigator() {
   const base = theme.dark ? DarkTheme : DefaultTheme;
   return (
     <NavigationContainer
+      ref={navigationRef}
       theme={{
         ...base,
         colors: {

@@ -9,14 +9,17 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.shiftsync.mobile"
+      "bundleIdentifier": "com.shiftsync.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F5EBD8",
         "foregroundImage": "./assets/logo.png"
       },
-      "predictiveBackGestureEnabled": true,
+      "predictiveBackGestureEnabled": false,
       "package": "com.shiftsync.mobile",
       "softwareKeyboardLayoutMode": "resize"
     },
@@ -26,6 +29,14 @@
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#58A6AE",
+          "defaultChannel": "alerts"
+        }
+      ],
       "expo-secure-store",
       "expo-web-browser"
     ],

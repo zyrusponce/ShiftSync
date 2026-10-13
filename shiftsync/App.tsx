@@ -19,6 +19,8 @@ import {
   Screen,
   Skeleton,
 } from "./src/components/ui";
+import { DialogHost } from "./src/components/dialog";
+import { useNotifications } from "./src/store/useNotifications";
 
 function Splash() {
   return (
@@ -105,10 +107,12 @@ function AppContent() {
 function ReadyApp() {
   const theme = useTheme();
   const { saveError, retrySave, sync, dismissSyncMessage, flush } = useApp();
+  useNotifications();
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <StatusBar style={theme.dark ? "light" : "dark"} />
       <AppNavigator />
+      <DialogHost />
       {sync.message && !saveError && (
         <View
           accessibilityLiveRegion="polite"
