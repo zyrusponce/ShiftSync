@@ -1,0 +1,197 @@
+/* ShiftSync public pages: the app's own palette and typography. */
+:root {
+  --ivory: #f5ebd8;
+  --navy: #252e4b;
+  --beige: #c9b59d;
+  --teal: #58a6ae;
+  --aqua: #89e3e5;
+  --ink: #080f20;
+  --bg: var(--ivory);
+  --surface: #fffdf8;
+  --text: var(--navy);
+  --muted: #666153;
+  --line: #e3d8c7;
+  --accent-text: #27666c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141b2c;
+    --surface: #202a40;
+    --text: #f5ebd8;
+    --muted: #c9b59d;
+    --line: #3c455a;
+    --accent-text: #89e3e5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  padding: 0 16px;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    "Poppins",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Arial,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+}
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 0 64px;
+}
+
+header.site {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 28px;
+}
+header.site img {
+  width: 44px;
+  height: 44px;
+}
+header.site .name {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+header.site nav {
+  margin-left: auto;
+  display: flex;
+  gap: 18px;
+  font-size: 14px;
+}
+
+h1 {
+  font-size: clamp(28px, 6vw, 40px);
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 36px 0 10px;
+}
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 24px 0 6px;
+}
+p,
+li {
+  margin: 0 0 14px;
+}
+ul {
+  padding-left: 22px;
+}
+.lead {
+  font-size: clamp(17px, 2.4vw, 20px);
+  color: var(--muted);
+  margin-bottom: 28px;
+}
+.updated {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+a {
+  color: var(--accent-text);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+a:hover {
+  text-decoration-thickness: 2px;
+}
+strong {
+  font-weight: 600;
+}
+
+.cards {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+  margin: 28px 0;
+}
+@media (min-width: 620px) {
+  .cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px;
+}
+.card h3 {
+  margin: 0 0 6px;
+}
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px 20px;
+  margin: 28px 0;
+}
+.note p:last-child {
+  margin-bottom: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 18px;
+  font-size: 15px;
+}
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.scroll {
+  overflow-x: auto;
+}
+
+footer.site {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+}
+footer.site .spacer {
+  margin-left: auto;
+}
