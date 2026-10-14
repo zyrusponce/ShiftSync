@@ -96,6 +96,8 @@ type Store = {
   /** Applies records the server already saved, without sending them back. */
   applyServerItems: (items: ScheduleItem[]) => void;
   saveItem: (item: ScheduleItem) => string | null;
+  /** Saves several items together, or none if any is invalid. */
+  saveItems: (items: ScheduleItem[]) => string | null;
   replaceItems: (items: ScheduleItem[]) => void;
   moveOccurrence: (id: string, occurrenceDate: string, slot: Slot) => void;
   deleteItem: (id: string) => void;
@@ -543,26 +545,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
   }, [account, loading, data.preferences.timeZone, commit]);
 
-  const saveItem = useCallback(
-    (item: ScheduleItem) => {
-      const error = validateItem(item);
-      if (error) return error;
+  const saveItems = useCallback(
+    (items: ScheduleItem[]) => {
+      for (const item of items) {
+        const error = validateItem(item);
+        if (error) return error;
+      }
+      const saved = new Map(
+        items.map((item) => [item.id, { ...item, title: item.title.trim() }]),
+      );
       commit((current) => ({
         ...current,
-        items: current.items.some((value) => value.id === item.id)
-          ? current.items.map((value) =>
-              value.id === item.id
-                ? { ...item, title: item.title.trim() }
-                : value,
-            )
-          : [...current.items, { ...item, title: item.title.trim() }],
+        items: [
+          ...current.items.map((value) => saved.get(value.id) ?? value),
+          ...[...saved.values()].filter(
+            (item) => !current.items.some((value) => value.id === item.id),
+          ),
+        ],
         ignoredConflicts: current.ignoredConflicts.filter(
-          (id) => !id.split(":").includes(item.id),
+          (id) => !id.split(":").some((part) => saved.has(part)),
         ),
       }));
       return null;
     },
     [commit],
+  );
+  const saveItem = useCallback(
+    (item: ScheduleItem) => saveItems([item]),
+    [saveItems],
   );
   const store = useMemo<Store>(
     () => ({
@@ -580,6 +590,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dismissSyncMessage: () =>
         setSync((current) => ({ ...current, state: "idle", message: null })),
       saveItem,
+      saveItems,
       signIn: async (email, password) =>
         adopt(await api.login(email, password)),
       signInWithGoogle: async () => {
@@ -755,6 +766,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pull,
       runCalendarSync,
       saveItem,
+      saveItems,
       adopt,
       commit,
       show,

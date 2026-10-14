@@ -63,7 +63,7 @@ Tap **Explore the demo** on the welcome screen to view the example schedule imme
 - Notifications: local schedule notices, swipe read/delete, and accessible action buttons.
 - Profile: editable details, calendar connection information, settings, light/dark/system appearance, and logout.
 
-Example data uses dates relative to the first launch rather than hard-coded dates. Schedule and preferences persist on the device. Calendar times use the phone's local time zone. Overnight shifts should be entered as two items, one on each day.
+Example data uses dates relative to the first launch rather than hard-coded dates. Schedule and preferences persist on the device. Calendar times use the phone's local time zone. An event or shift whose end time is earlier than its start (for example 10:00 PM to 1:00 AM) is saved as two items: 10:00 PM to 11:59 PM on the start date and 12:00 AM to 1:00 AM the next day.
 
 ## Accounts, backend and integrations
 

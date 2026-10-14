@@ -17,7 +17,8 @@ export type RootStackParamList = {
   ItemDetails: { id: string; occurrenceDate?: string };
   ItemEditor: { kind?: ItemKind; id?: string; date?: string };
   Resolve: { conflictId: string };
-  ShiftImpact: { shift: ScheduleItem };
+  /** `continued` is the next-day part of a shift that crosses midnight. */
+  ShiftImpact: { shift: ScheduleItem; continued?: ScheduleItem };
   Compose: { conflictId: string };
   Chat: undefined;
   Search: undefined;

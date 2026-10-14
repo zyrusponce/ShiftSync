@@ -7,6 +7,7 @@ import {
   listShiftOccurrences,
   rescheduleOccurrence,
   searchItems,
+  splitOvernight,
   suggestSlots,
   validateItem,
   setTaskOccurrenceCompleted,
@@ -208,6 +209,69 @@ test("invalid times, reversed duration, blank titles, and impossible dates are r
     assert.equal(typeof validateItem(item(values)), "string");
   }
   assert.equal(validateItem(item()), null);
+});
+test("a shift crossing midnight is split into one valid part on each day", () => {
+  const shift = item({ kind: "shift", start: "22:00", end: "01:00" });
+  const parts = splitOvernight(shift, [], "two");
+  assert.deepEqual(
+    parts.map(({ id, date, start, end }) => ({ id, date, start, end })),
+    [
+      { id: "one", date: "2026-10-08", start: "22:00", end: "23:59" },
+      { id: "two", date: "2026-10-09", start: "00:00", end: "01:00" },
+    ],
+  );
+  assert.ok(parts.every((part) => validateItem(part) === null));
+  assert.equal(itemsOnDate(parts, "2026-10-09").length, 1);
+});
+test("overnight splitting crosses month ends and keeps recurrence exceptions aligned", () => {
+  const [, next] = splitOvernight(
+    item({
+      date: "2026-10-31",
+      start: "23:00",
+      end: "02:30",
+      repeat: "Weekly",
+      exceptions: ["2026-11-07"],
+    }),
+    [],
+    "two",
+  );
+  assert.equal(next.date, "2026-11-01");
+  assert.deepEqual(next.exceptions, ["2026-11-08"]);
+  assert.equal(itemsOnDate([next], "2026-11-08").length, 0);
+  assert.equal(itemsOnDate([next], "2026-11-15").length, 1);
+});
+test("overnight splitting leaves same-day items, midnight ends and tasks alone", () => {
+  assert.equal(splitOvernight(item(), [], "two").length, 1);
+  assert.deepEqual(
+    splitOvernight(item({ start: "22:00", end: "00:00" }), [], "two").map(
+      (part) => part.end,
+    ),
+    ["23:59"],
+  );
+  const task = item({ kind: "task", start: "22:00", end: "01:00" });
+  assert.deepEqual(splitOvernight(task, [], "two"), [task]);
+  assert.equal(typeof validateItem(task), "string");
+});
+test("editing an overnight shift again updates its next-day part instead of adding one", () => {
+  const saved = [
+    item({ kind: "shift", start: "22:00", end: "23:59" }),
+    item({
+      id: "two",
+      kind: "shift",
+      date: "2026-10-09",
+      start: "00:00",
+      end: "01:00",
+      version: 3,
+    }),
+  ];
+  const [, next] = splitOvernight(
+    item({ kind: "shift", start: "21:00", end: "02:00" }),
+    saved,
+    "three",
+  );
+  assert.equal(next.id, "two");
+  assert.equal(next.version, 3);
+  assert.equal(next.end, "02:00");
 });
 test("search finds date, title, and location with case insensitive trimmed input", () => {
   const event = item({ title: "Team meeting", location: "Main Branch" });

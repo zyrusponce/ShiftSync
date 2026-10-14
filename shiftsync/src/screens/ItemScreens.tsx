@@ -28,6 +28,7 @@ import {
 } from "../domain/policy";
 import {
   addDays,
+  crossesMidnight,
   dateKey,
   findConflicts,
   formatDate,
@@ -37,6 +38,7 @@ import {
   occursOn,
   setTaskOccurrenceCompleted,
   setItemRepeat,
+  splitOvernight,
   suggestSlots,
   timeKey,
   validateItem,
@@ -62,7 +64,7 @@ export function ItemEditorScreen({
   route,
   navigation,
 }: StackProps<"ItemEditor">) {
-  const { data, saveItem, saveContact } = useApp();
+  const { data, saveItems, saveContact } = useApp();
   const theme = useTheme();
   const existing = data.items.find((item) => item.id === route.params.id);
   const [contactDraft, setContactDraft] = useState<Contact | null>(null);
@@ -96,7 +98,10 @@ export function ItemEditorScreen({
     setError("");
   };
   const save = () => {
-    const invalid = validateItem(item);
+    // A shift that ends after midnight is saved as one part on each day.
+    const parts = splitOvernight(item, data.items, uuid());
+    const [first] = parts;
+    const invalid = parts.map(validateItem).find(Boolean);
     if (invalid) {
       haptics.error();
       setError(invalid);
@@ -106,18 +111,19 @@ export function ItemEditorScreen({
     // every affected commitment before anything is saved.
     if (
       existing?.kind === "shift" &&
-      item.kind === "shift" &&
-      item.status !== "Cancelled" &&
-      (["date", "start", "end", "repeat"] as const).some(
-        (key) => existing[key] !== item[key],
-      )
+      first.kind === "shift" &&
+      first.status !== "Cancelled" &&
+      (parts.length > 1 ||
+        (["date", "start", "end", "repeat"] as const).some(
+          (key) => existing[key] !== first[key],
+        ))
     ) {
       haptics.selection();
-      navigation.replace("ShiftImpact", { shift: item });
+      navigation.replace("ShiftImpact", { shift: first, continued: parts[1] });
       return;
     }
     const commit = () => {
-      const failure = saveItem(item);
+      const failure = saveItems(parts);
       if (failure) {
         haptics.error();
         setError(failure);
@@ -126,15 +132,16 @@ export function ItemEditorScreen({
         navigation.goBack();
       }
     };
+    const ids = new Set(parts.map((part) => part.id));
     const issues = findConflicts(
-      [...data.items.filter((value) => value.id !== item.id), item],
+      [...data.items.filter((value) => !ids.has(value.id)), ...parts],
       data.availability,
       data.preferences,
-      item.date,
-      item.repeat === "Never" ? 1 : 14,
+      first.date,
+      item.repeat === "Never" ? parts.length : 14,
     ).filter(
       (conflict) =>
-        conflict.first.id === item.id || conflict.second?.id === item.id,
+        ids.has(conflict.first.id) || ids.has(conflict.second?.id ?? ""),
     );
     if (
       issues.length &&
@@ -237,6 +244,15 @@ export function ItemEditorScreen({
         value={item.end}
         onChange={(value) => update("end", value)}
       />
+      {crossesMidnight(item) && (
+        <FadeIn>
+          <Label size={13} tone="muted" style={{ marginBottom: 12 }}>
+            {item.end === "00:00"
+              ? `Ends at midnight. Saved as ${formatTime(item.start)} – 11:59 PM on ${formatDate(item.date, true)}.`
+              : `Ends the next day. Saved as two parts: ${formatDate(item.date, true)}, ${formatTime(item.start)} – 11:59 PM, and ${formatDate(addDays(item.date, 1), true)}, 12:00 AM – ${formatTime(item.end)}.`}
+          </Label>
+        </FadeIn>
+      )}
       {item.kind !== "unavailable" && (
         <Card>
           <Row

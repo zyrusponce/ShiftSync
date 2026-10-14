@@ -50,10 +50,56 @@ export function validateItem(item: ScheduleItem): string | null {
   )
     return "Choose valid start and end times.";
   if (minutes(item.end) <= minutes(item.start))
-    return "End time must be after start time. Split overnight shifts into two days.";
+    return "End time must be after start time.";
   if (item.deadline && item.deadline < `${item.date}T${item.end}`)
     return "The deadline must be after this session ends.";
   return null;
+}
+/** Whether the item ends the next day: its end time is earlier than its start. */
+export const crossesMidnight = (item: Pick<ScheduleItem, "kind" | "start" | "end">) =>
+  item.kind !== "task" && minutes(item.end) < minutes(item.start);
+/** The next-day part of an item that was saved across midnight. */
+export function overnightContinuation(
+  items: ScheduleItem[],
+  id: string,
+): ScheduleItem | undefined {
+  const saved = items.find((value) => value.id === id);
+  if (saved?.end !== "23:59") return undefined;
+  const next = addDays(saved.date, 1);
+  return items.find(
+    (value) =>
+      value.id !== saved.id &&
+      value.kind === saved.kind &&
+      value.title === saved.title &&
+      value.date === next &&
+      value.start === "00:00",
+  );
+}
+// Each item stays within one day, so a 22:00–01:00 shift is saved as
+// 22:00–23:59 on its date and 00:00–01:00 the next day. Editing the first
+// part again reuses the next-day part saved before instead of adding another.
+export function splitOvernight(
+  item: ScheduleItem,
+  items: ScheduleItem[],
+  newId: string,
+): ScheduleItem[] {
+  if (!crossesMidnight(item)) return [item];
+  const first = { ...item, end: "23:59" };
+  if (item.end === "00:00") return [first];
+  const continuation = overnightContinuation(items, item.id);
+  return [
+    first,
+    {
+      ...item,
+      id: continuation?.id ?? newId,
+      version: continuation?.version,
+      googleEventId: continuation?.googleEventId,
+      googleCalendarId: continuation?.googleCalendarId,
+      date: addDays(item.date, 1),
+      start: "00:00",
+      exceptions: item.exceptions?.map((date) => addDays(date, 1)),
+    },
+  ];
 }
 export function occursOn(item: ScheduleItem, date: string): boolean {
   if (

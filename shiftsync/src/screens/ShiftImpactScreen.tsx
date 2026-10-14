@@ -37,9 +37,9 @@ export function ShiftImpactScreen({
   route,
   navigation,
 }: StackProps<"ShiftImpact">) {
-  const { data, saveItem, flush } = useApp();
+  const { data, saveItems, flush } = useApp();
   const recovery = useRecovery();
-  const proposed = route.params.shift;
+  const { shift: proposed, continued } = route.params;
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "ready"; report: ImpactReport; offline: boolean }
@@ -60,7 +60,7 @@ export function ShiftImpactScreen({
   useEffect(load, [load]);
 
   const confirm = () => {
-    const failure = saveItem(proposed);
+    const failure = saveItems(continued ? [proposed, continued] : [proposed]);
     if (failure) {
       haptics.error();
       dialog.alert("Check this shift", failure);
@@ -203,6 +203,11 @@ export function ShiftImpactScreen({
         <Label weight="medium" style={{ marginTop: 4 }}>
           {`${confirmed ? "Now" : "New"} ${when(proposed)}`}
         </Label>
+        {continued && (
+          <Label weight="medium" style={{ marginTop: 2 }}>
+            {`Continues ${when(continued)}`}
+          </Label>
+        )}
         {proposed.repeat !== "Never" && (
           <Label size={12} tone="muted" style={{ marginTop: 6 }}>
             {`Repeats ${proposed.repeat.toLowerCase()}. Every occurrence in the next ${data.preferences.planningHorizonDays} days is checked.`}
