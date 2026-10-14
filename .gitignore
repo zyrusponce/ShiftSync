@@ -1,0 +1,14 @@
+# The app has its own shiftsync/.gitignore; this covers the repository root.
+
+# Claude Code session transcripts.
+/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+# Personal notes and planning documents, kept local on purpose.
+/Mark down/
+/frontendAdjustment/
+/docs/
+
+# Operating system files.
+.DS_Store
+Thumbs.db
+desktop.ini

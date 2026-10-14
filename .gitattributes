@@ -1,0 +1,17 @@
+# One line-ending style everywhere: LF in the repository and in every
+# checkout, matching Prettier and the Linux CI. Without this, Windows
+# checkouts convert to CRLF and files show changes that are only line endings.
+* text=auto eol=lf
+
+# Binary files are never converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.jar binary
+*.keystore binary
