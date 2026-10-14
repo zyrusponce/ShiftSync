@@ -37,6 +37,8 @@ import {
   googleAccess,
 } from "../services/google";
 import { recordConflict } from "./recovery";
+import { emailHighlights, renderEmailHtml } from "../services/emailFormat";
+import type { Repo } from "../repo/types";
 import { chatReply } from "../services/assistant";
 
 const EDITABLE = ["prepared", "draft_saved", "failed"] as const;
@@ -44,6 +46,20 @@ const EDITABLE = ["prepared", "draft_saved", "failed"] as const;
 export function communicationRoutes(deps: Deps) {
   const router = Router();
   const aiLimit = rateLimit(20, 60_000);
+  // The HTML version of a message: what to emphasise comes from the
+  // conflict on the student's current schedule, not from guessing at text.
+  const emailHtml = async (
+    repo: Repo,
+    email: string,
+    conflictKey: string,
+    body: string,
+  ) => {
+    const schedule = await loadSchedule(repo, email, deps.now());
+    return renderEmailHtml(
+      body,
+      emailHighlights(findConflict(schedule, conflictKey)),
+    );
+  };
 
   router.post("/ai/explain", aiLimit, async (req, res) => {
     const { repo, user } = context(req);
@@ -166,7 +182,7 @@ export function communicationRoutes(deps: Deps) {
   });
 
   router.post("/gmail/drafts", async (req, res) => {
-    const { repo } = context(req);
+    const { repo, user } = context(req);
     const body = parse(gmailDraftSchema, req.body);
     const notification = await repo.getNotification(body.notificationId);
     if (!notification) fail("NOT_FOUND", "This message was not found.");
@@ -189,6 +205,12 @@ export function communicationRoutes(deps: Deps) {
       toName: notification!.recipient_name,
       subject: body.subject,
       body: body.body,
+      html: await emailHtml(
+        repo,
+        user.email,
+        notification!.conflict_key,
+        body.body,
+      ),
     });
     let draftId: string;
     try {
@@ -234,7 +256,7 @@ export function communicationRoutes(deps: Deps) {
   });
 
   router.post("/gmail/send", rateLimit(10, 60_000), async (req, res) => {
-    const { repo } = context(req);
+    const { repo, user } = context(req);
     const key = requireIdempotencyKey(req);
     const body = parse(gmailSendSchema, req.body);
     const result = await idempotent(repo, "gmail-send", key, async () => {
@@ -269,6 +291,9 @@ export function communicationRoutes(deps: Deps) {
         "gmail",
         deps.now(),
       );
+      // Built before claiming the message, so a failure here can't leave it
+      // stuck in "sending".
+      const html = await emailHtml(repo, user.email, n.conflict_key, body.body);
       const edited = body.subject !== n.subject || body.body !== n.body;
       const claimed = await repo.updateNotification(
         n.id,
@@ -287,6 +312,7 @@ export function communicationRoutes(deps: Deps) {
         toName: n.recipient_name,
         subject: body.subject,
         body: body.body,
+        html,
       });
       let messageId: string;
       try {

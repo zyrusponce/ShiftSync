@@ -2,7 +2,8 @@
 // prepared separately, fully editable, and only sent after an explicit
 // confirmation that shows the exact recipient address.
 import React, { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
+import { dialog } from "../components/dialog";
 import * as Clipboard from "expo-clipboard";
 import { useFocusEffect } from "@react-navigation/native";
 import {
@@ -197,14 +198,19 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
       haptics.success();
     } catch (error) {
       haptics.error();
-      Alert.alert("We couldn't prepare the message", messageOf(error));
+      dialog.alert(
+        "We couldn't prepare the message",
+        messageOf(error),
+        undefined,
+        { tone: "warning" },
+      );
     } finally {
       setPreparing(false);
     }
   };
   const check = (message: Message) => {
     if (!message.subject.trim() || !message.body.trim()) {
-      Alert.alert("Almost there", "Add a subject and a message first.");
+      dialog.alert("Almost there", "Add a subject and a message first.");
       return false;
     }
     return true;
@@ -225,7 +231,9 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
       haptics.error();
       if (error instanceof ApiError && error.code === "GOOGLE_NOT_CONNECTED")
         setGmail("not_connected");
-      Alert.alert("Draft not saved", messageOf(error));
+      dialog.alert("Draft not saved", messageOf(error), undefined, {
+        tone: "warning",
+      });
     } finally {
       update(index, { busy: null });
     }
@@ -233,11 +241,11 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
   const send = (index: number) => {
     const message = messages[index];
     if (!check(message)) return;
-    Alert.alert(
+    dialog.alert(
       "Send this email?",
       `To: ${message.draft.recipientName} <${message.draft.recipientEmail}>\nSubject: ${message.subject.trim()}\n\nIt will be sent from your connected Gmail account and can't be unsent.`,
       [
-        { text: "Not yet", style: "cancel" },
+        { text: "Keep Editing", style: "cancel" },
         {
           text: "Send Email",
           onPress: async () => {
@@ -273,7 +281,9 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
                 error.code === "GOOGLE_NOT_CONNECTED"
               )
                 setGmail("not_connected");
-              Alert.alert("Not sent", messageOf(error));
+              dialog.alert("Not sent", messageOf(error), undefined, {
+                tone: "warning",
+              });
             } finally {
               update(index, { busy: null });
             }
@@ -506,13 +516,13 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
             <Button
               variant="secondary"
               onPress={() =>
-                Alert.alert(
+                dialog.alert(
                   "Mark as resolved?",
                   "Use this once the schedule conflict is sorted out.",
                   [
-                    { text: "Not yet", style: "cancel" },
+                    { text: "Not Yet", style: "cancel" },
                     {
-                      text: "Mark Resolved",
+                      text: "Mark as Resolved",
                       onPress: () => {
                         haptics.success();
                         setConflictStatus(conflict.id, "resolved");
@@ -520,6 +530,7 @@ export function ComposeScreen({ route, navigation }: StackProps<"Compose">) {
                       },
                     },
                   ],
+                  { tone: "success" },
                 )
               }
             >

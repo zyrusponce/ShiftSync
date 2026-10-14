@@ -1,12 +1,13 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import { Animated, PanResponder, StyleSheet, View } from "react-native";
-import { Card, Badge, Icon, Label } from "./ui";
+import { Card, Badge, ConflictBadge, Icon, Label } from "./ui";
 import { Pop, PressableScale, animateLayout, haptics, settle } from "./motion";
-import { palette } from "../theme";
+import { palette, useTheme } from "../theme";
 import {
   formatDate,
   formatTime,
   isTaskCompletedOn,
+  openConflicts,
   setTaskOccurrenceCompleted,
 } from "../domain/schedule";
 import type { ScheduleItem } from "../domain/types";
@@ -33,9 +34,31 @@ export function ItemCard({
   date?: string;
 }) {
   const navigation = useRootNavigation();
-  const { saveItem } = useApp();
+  const theme = useTheme();
+  const { data, saveItem } = useApp();
   const occurrenceDate = date ?? item.date;
   const completed = isTaskCompletedOn(item, occurrenceDate);
+  // Flag this occurrence if it overlaps something the student hasn't
+  // resolved or ignored yet.
+  const inConflict = useMemo(
+    () =>
+      item.kind !== "unavailable" &&
+      openConflicts(data, occurrenceDate, 1).some(
+        (conflict) =>
+          conflict.type === "overlap" &&
+          (conflict.first.id === item.id || conflict.second?.id === item.id),
+      ),
+    [
+      data.items,
+      data.availability,
+      data.preferences,
+      data.ignoredConflicts,
+      data.conflictStatus,
+      item.id,
+      item.kind,
+      occurrenceDate,
+    ],
+  );
   const shift = useRef(new Animated.Value(0)).current;
   const toggleComplete = () => {
     if (item.kind !== "task") return;
@@ -87,9 +110,18 @@ export function ItemCard({
             occurrenceDate,
           })
         }
-        label={`${item.title}, ${formatTime(item.start)} to ${formatTime(item.end)}`}
-        style={{ borderLeftWidth: 4, borderLeftColor: categoryColor(item) }}
+        label={`${inConflict ? "Schedule conflict. " : ""}${item.title}, ${formatTime(item.start)} to ${formatTime(item.end)}. Open details`}
+        style={{
+          borderLeftWidth: 4,
+          borderLeftColor: categoryColor(item),
+          ...(inConflict && { borderColor: theme.dangerLine }),
+        }}
       >
+        {inConflict && (
+          <View style={{ marginBottom: 10 }}>
+            <ConflictBadge />
+          </View>
+        )}
         <View
           style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}
         >

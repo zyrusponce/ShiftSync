@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Alert, Switch, View } from "react-native";
+import { Switch, View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Button,
   Card,
@@ -38,7 +39,7 @@ export function AvailabilityEditor({
   const update = (day: AvailabilityDay) => {
     if (day.end <= day.start) {
       haptics.warning();
-      Alert.alert(
+      dialog.alert(
         "Check these hours",
         "Your available end time must be after your start time.",
       );

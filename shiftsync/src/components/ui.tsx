@@ -31,7 +31,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { fonts, palette, useTheme } from "../theme";
+import { fonts, palette, readableOn, useTheme } from "../theme";
 import {
   FadeIn,
   Pop,
@@ -110,15 +110,19 @@ export function Screen({
   scroll = true,
   footer,
   style,
+  scrollRef: outerScrollRef,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   footer?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
+  /** Lets a screen scroll its own content into view (e.g. a selected day's list). */
+  scrollRef?: React.RefObject<ScrollView | null>;
 }) {
   const theme = useTheme();
   const inset = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const innerScrollRef = useRef<ScrollView>(null);
+  const scrollRef = outerScrollRef ?? innerScrollRef;
   const viewportRef = useRef<View>(null);
   const fieldRef = useRef<TextInput | null>(null);
   const offset = useRef(0);
@@ -327,17 +331,13 @@ export function Button({
       : variant === "secondary"
         ? theme.soft
         : variant === "danger"
-          ? theme.dark
-            ? "#50363C"
-            : "#F7E1DA"
+          ? theme.dangerSoft
           : "transparent";
   const color =
     variant === "primary"
       ? palette.ink
       : variant === "danger"
-        ? theme.dark
-          ? "#FFC3B4"
-          : "#8C352D"
+        ? theme.danger
         : theme.text;
   return (
     <PressableScale
@@ -407,7 +407,7 @@ export function Field({
             color: theme.text,
             backgroundColor: theme.surface,
             borderColor: error
-              ? "#A34738"
+              ? theme.danger
               : focused
                 ? palette.teal
                 : theme.line,
@@ -427,26 +427,59 @@ export function Field({
 export function Badge({
   children,
   color = palette.aqua,
+  textColor,
+  icon,
+  borderColor,
 }: {
   children: string;
   color?: string;
+  /** Defaults to navy or ivory, whichever reads better on `color`. */
+  textColor?: string;
+  icon?: IconName;
+  borderColor?: string;
 }) {
+  const foreground = textColor ?? readableOn(color);
   return (
     <View
       style={{
         alignSelf: "flex-start",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
         paddingHorizontal: 10,
         paddingVertical: 4,
         backgroundColor: color,
         borderRadius: 8,
+        borderWidth: borderColor ? 1 : 0,
+        borderColor,
       }}
     >
+      {icon && <Icon name={icon} size={13} color={foreground} />}
       <Text
-        style={{ color: palette.navy, fontFamily: fonts.medium, fontSize: 12 }}
+        style={{ color: foreground, fontFamily: fonts.medium, fontSize: 12 }}
       >
         {children}
       </Text>
     </View>
+  );
+}
+// The one red treatment for a genuine schedule conflict: icon plus words, so
+// it never depends on color alone.
+export function ConflictBadge({
+  label = "Schedule Conflict",
+}: {
+  label?: string;
+}) {
+  const theme = useTheme();
+  return (
+    <Badge
+      icon="warning"
+      color={theme.dangerSoft}
+      textColor={theme.danger}
+      borderColor={theme.dangerLine}
+    >
+      {label}
+    </Badge>
   );
 }
 export function Section({
@@ -694,11 +727,15 @@ export function Sheet({
   onClose,
   title,
   children,
+  scrollable = true,
 }: {
   visible: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** False for content with its own drag gestures (a clock face), which a
+   * scrolling container would otherwise interrupt. */
+  scrollable?: boolean;
 }) {
   const theme = useTheme();
   const inset = useSafeAreaInsets();
@@ -847,9 +884,13 @@ export function Sheet({
               <IconButton icon="close" label="Close sheet" onPress={onClose} />
             </View>
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled">
-            {shown.children}
-          </ScrollView>
+          {scrollable ? (
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {shown.children}
+            </ScrollView>
+          ) : (
+            <View>{shown.children}</View>
+          )}
         </Animated.View>
       </View>
     </Modal>

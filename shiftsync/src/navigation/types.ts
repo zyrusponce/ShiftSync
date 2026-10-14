@@ -6,7 +6,7 @@ import type {
   NativeStackNavigationProp,
   NativeStackScreenProps,
 } from "@react-navigation/native-stack";
-import type { ItemKind, ScheduleItem } from "../domain/types";
+import type { CalendarView, ItemKind, ScheduleItem } from "../domain/types";
 
 export type RootStackParamList = {
   Welcome: undefined;
@@ -32,7 +32,8 @@ export type RootStackParamList = {
 };
 export type TabParamList = {
   Home: undefined;
-  Calendar: undefined;
+  /** Opens the calendar on a date's event list (and optionally a view). */
+  Calendar: { date?: string; view?: CalendarView } | undefined;
   Add: undefined;
   Conflicts: undefined;
   Shifts: undefined;

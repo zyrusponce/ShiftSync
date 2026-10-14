@@ -1,6 +1,6 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Animated,
@@ -13,6 +13,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { Badge, Buddy, Button, Header, Icon, Label } from "../components/ui";
+import { dialog } from "../components/dialog";
 import {
   FadeIn,
   PressableScale,
@@ -27,7 +28,7 @@ import {
   formatTime,
 } from "../domain/schedule";
 import { newItem } from "../domain/seed";
-import { useApp } from "../store/AppStore";
+import { chatKey, useApp } from "../store/AppStore";
 import { api, isNetworkError } from "../services/api";
 import type { ChatAction } from "../domain/contract";
 import type { StackProps } from "../navigation/types";
@@ -94,6 +95,17 @@ function TypingDots() {
     </View>
   );
 }
+const greeting: Message = {
+  id: 0,
+  user: false,
+  text: "Hey! I'm CalenBud. I can answer questions about your schedule, add or remove things, and help fix conflicts. You always confirm before anything changes. What do you need?",
+};
+// Keep the greeting plus the most recent turns so storage stays small.
+const saveChat = (key: string, messages: Message[]) =>
+  AsyncStorage.setItem(
+    key,
+    JSON.stringify([messages[0], ...messages.slice(1).slice(-100)]),
+  ).catch(() => undefined);
 const prompts = [
   "What's on my schedule today?",
   "Find conflicts",
@@ -107,13 +119,28 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
   const theme = useTheme();
   const inset = useSafeAreaInsets();
   const mounted = useRef(true);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 0,
-      user: false,
-      text: "Hey! I'm CalenBud. I can answer questions about your schedule, add or remove things, and help fix conflicts. You always confirm before anything changes. What do you need?",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([greeting]);
+  const storageKey = chatKey(account?.id ?? null);
+  const restored = useRef(false);
+  const latest = useRef(messages);
+  latest.current = messages;
+  // Bring back the last conversation, keeping anything sent while it loaded.
+  useEffect(() => {
+    restored.current = false;
+    AsyncStorage.getItem(storageKey)
+      .then((raw) => {
+        const saved = raw ? JSON.parse(raw) : null;
+        if (mounted.current && Array.isArray(saved) && saved.length)
+          setMessages((current) => [...saved, ...current.slice(1)]);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        restored.current = true;
+      });
+  }, [storageKey]);
+  useEffect(() => {
+    if (restored.current) saveChat(storageKey, messages);
+  }, [storageKey, messages]);
   const [text, setText] = useState("");
   const [typing, setTyping] = useState(false);
   const scroll = useRef<ScrollView>(null);
@@ -136,7 +163,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
   const preview = (action: Extract<ChatAction, { type: "change_shift" }>) => {
     const shift = data.items.find((item) => item.id === action.shiftId);
     if (!shift) {
-      Alert.alert(
+      dialog.alert(
         "Shift not found",
         "This shift is no longer on your schedule.",
       );
@@ -172,7 +199,7 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
     };
     const error = saveItem(item);
     if (error) {
-      Alert.alert("Couldn't add this", error);
+      dialog.alert("Couldn't add this", error, undefined, { tone: "warning" });
       return;
     }
     haptics.tap();
@@ -210,13 +237,13 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
       markDone(message.id, "Already removed");
       return;
     }
-    Alert.alert(
+    dialog.alert(
       "Remove from your schedule?",
       `${action.title}\n${when(action)}`,
       [
-        { text: "Keep it", style: "cancel" },
+        { text: "Keep It", style: "cancel" },
         {
-          text: "Remove",
+          text: "Remove Item",
           style: "destructive",
           onPress: () => {
             deleteItem(action.itemId);
@@ -281,7 +308,11 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
       });
       reply = { id: Date.now(), user: false, text: local(clean) };
     }
-    if (!mounted.current) return;
+    if (!mounted.current) {
+      // The chat was closed while waiting; keep the reply for next time.
+      saveChat(storageKey, [...latest.current, reply]);
+      return;
+    }
     setMessages((current) => [...current, reply]);
     setTyping(false);
   };
@@ -388,7 +419,8 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
                   </View>
                 )}
                 {!message.user &&
-                  (!message.action || message.action.type === "show_conflicts") &&
+                  (!message.action ||
+                    message.action.type === "show_conflicts") &&
                   (message.action?.type === "show_conflicts" ||
                     /conflict|issue|alternatives/i.test(message.text)) && (
                     <View style={{ marginTop: 12, gap: 8 }}>

@@ -1,7 +1,8 @@
 // Shift Impact Analysis: preview every commitment a shift change affects,
 // confirm the change, then start recovery for each affected commitment.
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Badge,
   Button,
@@ -62,7 +63,7 @@ export function ShiftImpactScreen({
     const failure = saveItem(proposed);
     if (failure) {
       haptics.error();
-      Alert.alert("Check this shift", failure);
+      dialog.alert("Check this shift", failure);
       return;
     }
     haptics.success();

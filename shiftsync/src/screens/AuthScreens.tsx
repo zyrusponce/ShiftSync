@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Badge,
   Brand,
@@ -228,7 +229,7 @@ function AuthForm({ signup }: { signup: boolean }) {
           );
           if (result === "confirm_email") {
             haptics.success();
-            Alert.alert(
+            dialog.alert(
               "Check your email",
               "We sent you a link to confirm your account. Open it, then log in here.",
               [{ text: "OK", onPress: () => navigation.replace("Login") }],
@@ -258,7 +259,7 @@ function AuthForm({ signup }: { signup: boolean }) {
     setConfirm("");
   };
   const provider = (name: string) =>
-    Alert.alert(
+    dialog.alert(
       `${name} sign-in`,
       accountsEnabled
         ? `${name} sign-in isn't available yet. Use Google or your email.`
@@ -373,7 +374,7 @@ function AuthForm({ signup }: { signup: boolean }) {
           <Button
             variant="ghost"
             onPress={() =>
-              Alert.alert(
+              dialog.alert(
                 accountsEnabled
                   ? "Terms and privacy"
                   : "Demo terms and privacy",
@@ -392,7 +393,7 @@ function AuthForm({ signup }: { signup: boolean }) {
         <Button
           variant="ghost"
           onPress={() =>
-            Alert.alert(
+            dialog.alert(
               "Password reset",
               accountsEnabled
                 ? "Password reset isn't available in the app yet. Ask the ShiftSync team to send you a reset link."

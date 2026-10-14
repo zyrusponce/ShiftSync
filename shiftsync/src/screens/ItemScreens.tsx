@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Alert, View } from "react-native";
+import { View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Badge,
   Button,
@@ -44,7 +45,7 @@ import { useApp } from "../store/AppStore";
 import { ApiError, api, messageOf } from "../services/api";
 import type { StackProps } from "../navigation/types";
 import type { Contact, ContactRole, ScheduleItem } from "../domain/types";
-import { palette } from "../theme";
+import { palette, useTheme } from "../theme";
 
 const roleLabel: Record<ContactRole, string> = {
   Work: "Work contact",
@@ -62,6 +63,7 @@ export function ItemEditorScreen({
   navigation,
 }: StackProps<"ItemEditor">) {
   const { data, saveItem, saveContact } = useApp();
+  const theme = useTheme();
   const existing = data.items.find((item) => item.id === route.params.id);
   const [contactDraft, setContactDraft] = useState<Contact | null>(null);
   const [contactError, setContactError] = useState("");
@@ -139,14 +141,15 @@ export function ItemEditorScreen({
       item.kind !== "unavailable" &&
       data.preferences.avoidOverlaps
     ) {
-      haptics.warning();
-      Alert.alert(
-        "Check this time",
-        `${formatDate(issues[0].date, true)}: ${issues[0].reason}${item.repeat !== "Never" ? "\nRecurring schedules are checked for the next 14 days." : ""}\n\nSave this time anyway, or return to the form?`,
+      const overlap = issues[0].type === "overlap";
+      dialog.alert(
+        overlap ? "Schedule conflict" : "Check this time",
+        `${formatDate(issues[0].date, true)}: ${issues[0].reason}${item.repeat !== "Never" ? "\nRecurring schedules are checked for the next 14 days." : ""}\n\nSave this time anyway, or go back and adjust it?`,
         [
-          { text: "Review time", style: "cancel" },
-          { text: "Save anyway", onPress: commit },
+          { text: "Review Time", style: "cancel" },
+          { text: `Save ${names[item.kind]} Anyway`, onPress: commit },
         ],
+        { tone: overlap ? "danger" : "warning" },
       );
     } else commit();
   };
@@ -190,7 +193,7 @@ export function ItemEditorScreen({
         <View style={{ gap: 8 }}>
           {error ? (
             <FadeIn trigger={error}>
-              <Label size={13} style={{ color: "#A34738" }}>
+              <Label size={13} style={{ color: theme.danger }}>
                 {error}
               </Label>
             </FadeIn>
@@ -298,6 +301,7 @@ export function ItemEditorScreen({
                     <DateTimeField
                       label="Deadline date"
                       mode="date"
+                      min={item.date}
                       value={item.deadline.slice(0, 10)}
                       onChange={(value) =>
                         update(
@@ -400,7 +404,10 @@ export function ItemEditorScreen({
                 />
               ))}
               {contactError ? (
-                <Label size={13} style={{ color: "#A34738", marginBottom: 8 }}>
+                <Label
+                  size={13}
+                  style={{ color: theme.danger, marginBottom: 8 }}
+                >
                   {contactError}
                 </Label>
               ) : null}
@@ -695,14 +702,14 @@ export function ItemDetailsScreen({
   // Adds this event to the student's Google Calendar (once; retries are safe).
   const addToCalendar = async () => {
     if (!account) {
-      Alert.alert(
+      dialog.alert(
         "Already in your calendar",
         "It's shown in the ShiftSync calendar. Log in and connect Google to add it to Google Calendar too.",
       );
       return;
     }
     if (item.googleEventId) {
-      Alert.alert(
+      dialog.alert(
         "Already in Google Calendar",
         "This is linked to your Google Calendar, and changes you make here are sent there.",
       );
@@ -718,21 +725,31 @@ export function ItemDetailsScreen({
       const result = await api.addToGoogleCalendar(item.id);
       applyServerItems([result.item]);
       haptics.success();
-      Alert.alert(
+      dialog.alert(
         "Added to Google Calendar",
         `${item.title} is now in your Google Calendar.`,
+        [{ text: "Done" }],
+        { tone: "success" },
       );
     } catch (error) {
       haptics.error();
       if (error instanceof ApiError && error.code === "GOOGLE_NOT_CONNECTED")
-        Alert.alert("Connect Google first", error.message, [
-          { text: "Not now", style: "cancel" },
-          {
-            text: "Connect",
-            onPress: () => navigation.navigate("ConnectedCalendars"),
-          },
-        ]);
-      else Alert.alert("Not added", messageOf(error));
+        dialog.alert(
+          "Connect Google first",
+          error.message,
+          [
+            { text: "Not Now", style: "cancel" },
+            {
+              text: "Connect Google",
+              onPress: () => navigation.navigate("ConnectedCalendars"),
+            },
+          ],
+          { icon: "logo-google" },
+        );
+      else
+        dialog.alert("Not added", messageOf(error), undefined, {
+          tone: "warning",
+        });
     } finally {
       setAdding(false);
     }
@@ -745,15 +762,15 @@ export function ItemDetailsScreen({
         ? "Adding…"
         : "Add to Google Calendar";
   const deleteThis = () =>
-    Alert.alert(
+    dialog.alert(
       `Delete ${names[item.kind].toLowerCase()}?`,
       item.repeat !== "Never"
-        ? "This removes the whole recurring series from your schedule."
-        : "This removes it from your schedule.",
+        ? `${item.title} and every repeat in its series will be removed from your schedule. This can't be undone.`
+        : `${item.title} will be removed from your schedule. This can't be undone.`,
       [
-        { text: "Keep it", style: "cancel" },
+        { text: `Keep ${names[item.kind]}`, style: "cancel" },
         {
-          text: "Delete",
+          text: `Delete ${names[item.kind]}`,
           style: "destructive",
           onPress: () => {
             deleteItem(item.id);
@@ -764,16 +781,17 @@ export function ItemDetailsScreen({
       ],
     );
   const requestSwap = () =>
-    Alert.alert(
+    dialog.alert(
       "Request a swap?",
       "This records a swap request on your device. Sending it to your team needs an organization service.",
       [
-        { text: "Keep shift", style: "cancel" },
+        { text: "Not Now", style: "cancel" },
         {
-          text: "Record request",
+          text: "Record Swap Request",
           onPress: () => confirm({ ...item, swapRequested: true }),
         },
       ],
+      { icon: "swap-horizontal-outline" },
     );
   return (
     <Screen
@@ -929,13 +947,14 @@ export function ItemDetailsScreen({
             <Button
               variant="ghost"
               onPress={() =>
-                Alert.alert(
+                dialog.alert(
                   "Cancel this shift?",
                   "This marks the shift as cancelled in ShiftSync. Your employer is not notified automatically.",
                   [
-                    { text: "Keep shift", style: "cancel" },
+                    { text: "Keep Shift", style: "cancel" },
                     {
-                      text: "Cancel shift",
+                      text: "Cancel Shift",
+                      style: "destructive",
                       onPress: () => confirm({ ...item, status: "Cancelled" }),
                     },
                   ],
@@ -955,9 +974,11 @@ export function ItemDetailsScreen({
             onPress={() =>
               issues.length
                 ? navigation.navigate("Resolve", { conflictId: issues[0].id })
-                : Alert.alert(
+                : dialog.alert(
                     "You’re all in sync!",
                     "No scheduling conflicts were found for this event.",
+                    [{ text: "Great" }],
+                    { tone: "success" },
                   )
             }
           >

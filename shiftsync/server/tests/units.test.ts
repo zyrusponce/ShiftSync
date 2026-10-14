@@ -17,6 +17,9 @@ import {
 import { groundingProblem, type Facts } from "../src/services/communication";
 import { itemToRow, rowToItem } from "../src/mapping";
 import type { EventRow } from "../src/repo/types";
+import { emailHighlights, renderEmailHtml } from "../src/services/emailFormat";
+import { newItem } from "../../src/domain/seed";
+import type { Conflict } from "../../src/domain/types";
 
 test("existing VITE_* names are accepted without renaming", () => {
   const parsed = parseEnvFile(
@@ -255,7 +258,11 @@ test("OpenRouter client uses a bearer header, retries and reports outages", asyn
     { fallbackModels: ["vendor/backup"] },
   );
   assert.deepEqual(
-    await ok.generateJson({ system: "s", prompt: "p", schema: { type: "object" } }),
+    await ok.generateJson({
+      system: "s",
+      prompt: "p",
+      schema: { type: "object" },
+    }),
     { explanation: "ok" },
   );
   assert.ok(!seen!.url.includes("or-key"), "the key never goes in the URL");
@@ -359,4 +366,93 @@ test("events are stored in UTC and read back in the user's time zone", () => {
   );
   assert.equal(back.version, 3);
   assert.deepEqual(back.contactIds, ["c1"]);
+});
+
+const emailConflict = (): Conflict => ({
+  id: "2026-10-16:a:b",
+  date: "2026-10-16",
+  first: {
+    ...newItem("shift", "2026-10-16"),
+    title: "Evening Shift",
+    start: "13:00",
+    end: "19:00",
+  },
+  second: {
+    ...newItem("event", "2026-10-16"),
+    title: "Calculus <b>",
+    category: "Class",
+    start: "15:00",
+    end: "17:00",
+  },
+  severity: "High",
+  type: "overlap",
+  minutes: 120,
+  reason: "Overlaps",
+});
+const emailBody = [
+  "Hi Dana,",
+  "",
+  "I'm writing about a schedule conflict with Evening Shift on Friday, October 16. It overlaps with Calculus <b>.",
+  "",
+  "• Date: Friday, October 16",
+  "• Evening Shift (work shift): 1:00 PM–7:00 PM",
+  "",
+  "Evening Shift starts at 1:00 PM. Could I start at 5:00 PM instead? Thanks for considering it.",
+  "",
+  "Thank you,",
+  "Ana",
+].join("\n");
+
+test("email HTML bolds the conflict's real details once, and escapes everything", () => {
+  const html = renderEmailHtml(emailBody, emailHighlights(emailConflict()));
+  // User-provided titles can't inject markup.
+  assert.doesNotMatch(html, /<b>/);
+  assert.match(html, /<strong>Calculus &lt;b&gt;<\/strong>/);
+  assert.match(html, /<strong>schedule conflict<\/strong>/);
+  assert.match(html, /<strong>Friday, October 16<\/strong>/);
+  // Bold once: the title's second mention stays plain.
+  assert.equal(html.match(/<strong>Evening Shift<\/strong>/g)?.length, 1);
+  // The first question is the request; it is bold as a whole.
+  assert.match(html, /<strong>Could I start at 5:00 PM instead\?<\/strong>/);
+  // Bullets become a list with bold labels.
+  assert.match(
+    html,
+    /<li[^>]*><strong>Evening Shift \(work shift\):<\/strong> 1:00 PM–7:00 PM<\/li>/,
+  );
+  // Greeting and sign-off are never emphasised.
+  assert.match(html, /<p[^>]*>Hi Dana,<\/p>/);
+  assert.match(html, /<p[^>]*>Thank you,<br>Ana<\/p>/);
+});
+
+test("without the conflict, only ShiftSync-formatted dates and times are bold", () => {
+  const html = renderEmailHtml(emailBody, []);
+  assert.match(html, /<strong>Friday, October 16<\/strong>/);
+  assert.match(html, /<strong>1:00 PM<\/strong>/);
+  assert.doesNotMatch(html, /<strong>Evening Shift<\/strong>/);
+});
+
+test("emails with HTML are multipart, keeping the plain text unchanged", () => {
+  const raw = Buffer.from(
+    buildRawEmail({
+      to: "prof@example.com",
+      toName: "Prof",
+      subject: "Conflict",
+      body: "Line 1\nLine 2",
+      html: "<p><strong>Line 1</strong></p>",
+    }),
+    "base64url",
+  ).toString("utf8");
+  const boundary =
+    /^Content-Type: multipart\/alternative; boundary="([^"]+)"$/m.exec(raw)![1];
+  const parts = raw.split(`--${boundary}`).slice(1, 3);
+  const decode = (part: string) =>
+    Buffer.from(
+      part.split("\r\n\r\n")[1].replace(/\r\n/g, ""),
+      "base64",
+    ).toString("utf8");
+  assert.match(parts[0], /Content-Type: text\/plain; charset=UTF-8/);
+  assert.equal(decode(parts[0]), "Line 1\r\nLine 2");
+  assert.match(parts[1], /Content-Type: text\/html; charset=UTF-8/);
+  assert.equal(decode(parts[1]), "<p><strong>Line 1</strong></p>");
+  assert.ok(raw.trimEnd().endsWith(`--${boundary}--`));
 });
