@@ -36,9 +36,15 @@ const app = createApp({
   repoFor: supabaseRepoFactory(env.supabaseUrl, env.supabaseKey),
   // OpenRouter wins when its key is set; otherwise fall back to Gemini.
   ai: env.openrouterApiKey
-    ? openRouterClient(env.openrouterApiKey, env.openrouterModel, fetch, 25000, {
-        fallbackModels: env.openrouterFallbackModels,
-      })
+    ? openRouterClient(
+        env.openrouterApiKey,
+        env.openrouterModel,
+        fetch,
+        25000,
+        {
+          fallbackModels: env.openrouterFallbackModels,
+        },
+      )
     : geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
         fallbackModels: env.geminiFallbackModels,
       }),

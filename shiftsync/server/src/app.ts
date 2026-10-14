@@ -91,11 +91,41 @@ export async function idempotent(
   }
 }
 
+// The API answers JSON and the public pages are static HTML with no scripts,
+// so the policy can be strict: same-origin assets plus Google Fonts only.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "style-src 'self' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+export function securityHeaders(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  // Browsers ignore this over plain http (local development), so it only
+  // takes effect behind Render's https.
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=31536000; includeSubDomains",
+  );
+  next();
+}
+
 export function createApp(deps: Deps) {
   const app = express();
   app.disable("x-powered-by");
   if (deps.trustProxy) app.set("trust proxy", 1);
   app.use(requestLog(deps.log));
+  app.use(securityHeaders);
   app.use(express.json({ limit: "100kb" }));
   app.get("/health", (_req, res) => {
     res.json({

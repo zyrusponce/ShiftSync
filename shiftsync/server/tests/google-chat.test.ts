@@ -248,14 +248,17 @@ test("CalenBud proposes adding, removing and resolving, grounded in what was sai
     h.aiMode.current = { kind: "ok", reply: () => ({ reply, action }) };
   };
 
-  say("Sure, I can add Dentist appointment tomorrow at 3:00 PM once you confirm.", {
-    type: "add_item",
-    title: "Dentist appointment",
-    kind: "event",
-    date: "2026-10-13",
-    start: "15:00",
-    category: "Personal",
-  });
+  say(
+    "Sure, I can add Dentist appointment tomorrow at 3:00 PM once you confirm.",
+    {
+      type: "add_item",
+      title: "Dentist appointment",
+      kind: "event",
+      date: "2026-10-13",
+      start: "15:00",
+      category: "Personal",
+    },
+  );
   const added = await ask("Add a dentist appointment tomorrow at 3pm");
   assert.equal(added.body.source, "ai", JSON.stringify(added.body));
   assert.equal(added.body.action.type, "add_item");
@@ -291,7 +294,11 @@ test("CalenBud proposes adding, removing and resolving, grounded in what was sai
     itemId: s.shift.id,
   });
   const removal = await ask("Remove my evening shift tomorrow");
-  assert.equal(removal.body.action?.type, "remove_item", JSON.stringify(removal.body));
+  assert.equal(
+    removal.body.action?.type,
+    "remove_item",
+    JSON.stringify(removal.body),
+  );
   assert.equal(removal.body.action.itemId, s.shift.id);
   say("Removing it.", { type: "remove_item", itemId: s.shift.id });
   assert.equal(
@@ -319,7 +326,11 @@ test("CalenBud proposes adding, removing and resolving, grounded in what was sai
     },
   };
   const resolve = await ask("Fix my conflict tomorrow");
-  assert.equal(resolve.body.action?.type, "resolve_conflict", JSON.stringify(resolve.body));
+  assert.equal(
+    resolve.body.action?.type,
+    "resolve_conflict",
+    JSON.stringify(resolve.body),
+  );
   assert.match(resolve.body.action.conflictId, /^2026-10-13:/);
   say("Opening it.", { type: "resolve_conflict", conflictId: "nope" });
   assert.equal((await ask("Fix my conflict")).body.action, null);

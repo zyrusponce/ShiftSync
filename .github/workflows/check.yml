@@ -1,0 +1,47 @@
+# Runs ShiftSync's checks on every push and on pull requests into main.
+# main auto-deploys to Render, so a red run here means "don't merge".
+name: Check
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: shiftsync
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches NODE_VERSION in render.yaml.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            shiftsync/package-lock.json
+            shiftsync/server/package-lock.json
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Formatting
+        run: npm run format:check
+
+      - name: App and server typecheck and tests
+        run: npm run check:all

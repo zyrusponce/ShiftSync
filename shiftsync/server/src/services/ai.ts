@@ -37,7 +37,11 @@ export function openRouterClient(
   model: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 25000,
-  { fallbackModels = [], attempts = 2, retryDelayMs = 1000 }: GeminiOptions = {},
+  {
+    fallbackModels = [],
+    attempts = 2,
+    retryDelayMs = 1000,
+  }: GeminiOptions = {},
 ): AiClient {
   if (!apiKey) return disabledAi;
   const models = [model, ...fallbackModels.filter((name) => name !== model)];
@@ -125,7 +129,11 @@ export function geminiClient(
   model: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 25000,
-  { fallbackModels = [], attempts = 2, retryDelayMs = 1000 }: GeminiOptions = {},
+  {
+    fallbackModels = [],
+    attempts = 2,
+    retryDelayMs = 1000,
+  }: GeminiOptions = {},
 ): AiClient {
   if (!apiKey) return disabledAi;
   const models = [model, ...fallbackModels.filter((name) => name !== model)];

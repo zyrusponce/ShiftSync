@@ -234,9 +234,9 @@ export function validateAddItem(
       : null;
   const end = stated ?? start + Math.max(15, defaultDuration || 60);
   if (end > 23 * 60 + 59) return null;
-  const kind =
-    raw.kind === "task" || raw.kind === "shift" ? raw.kind : "event";
-  const category = CATEGORIES.find((value) => value === raw.category) ??
+  const kind = raw.kind === "task" || raw.kind === "shift" ? raw.kind : "event";
+  const category =
+    CATEGORIES.find((value) => value === raw.category) ??
     (kind === "shift" ? "Work" : kind === "task" ? "Important" : "Personal");
   return {
     type: "add_item",
