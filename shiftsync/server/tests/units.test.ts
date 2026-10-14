@@ -86,6 +86,23 @@ test("stored Google tokens are encrypted and tamper-evident", () => {
   assert.equal(verifyState(signState({ exp: Date.now() - 1 }, key), key), null);
 });
 
+test("only the canonical spelling of a signature verifies", () => {
+  // The last base64url character of a 32-byte HMAC carries 2 unused bits.
+  // Flipping only those leaves the decoded bytes unchanged, which used to
+  // let roughly 1 in 16 "tampered" tokens through and made the test above
+  // flaky. Every possible respelling of the last character must now fail.
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  for (let n = 0; n < 50; n++) {
+    const key = crypto.randomBytes(32);
+    const state = signState({ uid: "u", exp: Date.now() + 60_000 }, key);
+    assert.ok(verifyState(state, key));
+    for (const c of alphabet)
+      if (c !== state.at(-1))
+        assert.equal(verifyState(state.slice(0, -1) + c, key), null);
+  }
+});
+
 test("emails are plain-text RFC 2822 messages safe from header injection", () => {
   const raw = Buffer.from(
     buildRawEmail({

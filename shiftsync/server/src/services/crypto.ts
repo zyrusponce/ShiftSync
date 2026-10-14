@@ -40,7 +40,10 @@ export function verifyState<T extends { exp: number }>(
   if (!body || !mac) return null;
   const expected = crypto.createHmac("sha256", key).update(body).digest();
   const given = Buffer.from(mac, "base64url");
+  // Node's decoder ignores the unused bits of the last character, so several
+  // spellings decode to the same bytes. Only the canonical one is accepted.
   if (
+    given.toString("base64url") !== mac ||
     given.length !== expected.length ||
     !crypto.timingSafeEqual(given, expected)
   )
