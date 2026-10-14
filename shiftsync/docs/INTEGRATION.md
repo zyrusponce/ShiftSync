@@ -51,12 +51,13 @@ npm run dev              # http://0.0.0.0:4000, reloads on changes
 
 The server validates its configuration on startup and lists anything missing. It already reads the existing names in `shiftsync/.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_google_gemini_api_key`, `VITE_GOOGLE_CLIENT_ID`), so nothing has to be duplicated. Over time, move the Gemini key into `server/.env` as `GEMINI_API_KEY`: keeping secrets out of the app folder removes the risk of someone renaming it to `EXPO_PUBLIC_…` and shipping it.
 
-| Variable                                                                                               | Needed for                 | Notes                                                                          |
-| ------------------------------------------------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------ |
-| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`                                                             | Everything                 | Publishable/anon key only. No service-role key is used.                        |
-| `GEMINI_API_KEY`, `GEMINI_MODEL`                                                                       | AI explanations and drafts | Optional; templates are used without it. Model defaults to `gemini-3.8-flash`. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY` | Calendar + Gmail           | All four or Google stays off. See step 4.                                      |
-| `PORT`, `HOST`, `TRUST_PROXY`, `APP_RETURN_URL_PREFIXES`                                               | Hosting                    | Defaults: `4000`, `0.0.0.0`, `false`, `shiftsync://,exp://`.                   |
+| Variable                                                                                               | Needed for                 | Notes                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`                                                             | Everything                 | Publishable/anon key only. No service-role key is used.                                                                                                                                                                                                                     |
+| `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_FALLBACK_MODELS`                                                   | AI explanations and drafts | Optional. Used first when its key is set, then OpenRouter, then Gemini. Defaults to `openai/gpt-oss-20b`, backed up by `openai/gpt-oss-120b`. Only `openai/gpt-oss-*` and `qwen/qwen3-*` follow a JSON schema exactly; other Groq models are told the schema in the prompt. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL`                                                                       | AI explanations and drafts | Optional; templates are used without it. Model defaults to `gemini-3.8-flash`.                                                                                                                                                                                              |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `GOOGLE_OAUTH_TOKEN_ENCRYPTION_KEY` | Calendar + Gmail           | All four or Google stays off. See step 4.                                                                                                                                                                                                                                   |
+| `PORT`, `HOST`, `TRUST_PROXY`, `APP_RETURN_URL_PREFIXES`                                               | Hosting                    | Defaults: `4000`, `0.0.0.0`, `false`, `shiftsync://,exp://`.                                                                                                                                                                                                                |
 
 Check it is up: `GET /health` returns `{"status":"ok","ai":true,"google":false}`.
 
@@ -93,11 +94,11 @@ The redirect URI must be reachable from the phone's browser. For local testing, 
 
 While the Google app is in **Testing**, only accounts on its test-user list can sign in. Publishing it to **Production** opens it to anyone, but how much review Google asks for depends on the scopes requested at consent:
 
-| Scope                                 | Google's category | Needed to go public                               |
-| ------------------------------------- | ----------------- | ------------------------------------------------- |
-| `openid`, `email`, `profile`          | Basic             | Nothing beyond publishing                         |
-| `calendar.events`                     | Sensitive         | App verification (free, days to weeks)            |
-| `gmail.compose`                       | **Restricted**    | Verification **and a yearly security assessment** |
+| Scope                        | Google's category | Needed to go public                               |
+| ---------------------------- | ----------------- | ------------------------------------------------- |
+| `openid`, `email`, `profile` | Basic             | Nothing beyond publishing                         |
+| `calendar.events`            | Sensitive         | App verification (free, days to weeks)            |
+| `gmail.compose`              | **Restricted**    | Verification **and a yearly security assessment** |
 
 The consent screen needs a home page, a privacy policy and terms, all on a domain you own. The server hosts them at `/`, `/privacy` and `/terms` from [`server/public`](../server/public); they describe the current behaviour, so update them when the data handling changes. Google requires the domain in _Authorized domains_ to be one you can verify in Search Console, so a `*.onrender.com` address is usually not enough: point a custom domain at the Render service and use that.
 

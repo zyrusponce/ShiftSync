@@ -41,6 +41,9 @@ export type Env = {
   host: string;
   supabaseUrl: string;
   supabaseKey: string;
+  groqApiKey: string | null;
+  groqModel: string;
+  groqFallbackModels: string[];
   geminiApiKey: string | null;
   geminiModel: string;
   geminiFallbackModels: string[];
@@ -144,6 +147,13 @@ export function readEnv(source: NodeJS.ProcessEnv = process.env): Env {
     host: source.HOST?.trim() || "0.0.0.0",
     supabaseUrl: supabaseUrl!.replace(/\/$/, ""),
     supabaseKey: supabaseKey!,
+    groqApiKey: source.GROQ_API_KEY?.trim() || null,
+    groqModel: source.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
+    // The larger model backs up the small one unless told otherwise.
+    groqFallbackModels: (source.GROQ_FALLBACK_MODELS ?? "openai/gpt-oss-120b")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
     geminiApiKey: pick(source, ALIASES.gemini),
     geminiModel: source.GEMINI_MODEL?.trim() || "gemini-3.8-flash",
     geminiFallbackModels: (source.GEMINI_FALLBACK_MODELS ?? "")

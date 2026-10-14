@@ -3,7 +3,7 @@ import { createApp } from "./app";
 import { ConfigError, loadEnvFiles, readEnv, type Env } from "./env";
 import { createLogger } from "./http";
 import { supabaseRepoFactory } from "./repo/supabase";
-import { geminiClient, openRouterClient } from "./services/ai";
+import { geminiClient, groqClient, openRouterClient } from "./services/ai";
 import { supabaseAuth } from "./services/auth";
 import { googleRestApi } from "./services/google";
 
@@ -23,31 +23,46 @@ try {
   }
   throw error;
 }
-const aiEnabled = !!(env.openrouterApiKey || env.geminiApiKey);
+const aiEnabled = !!(
+  env.groqApiKey ||
+  env.openrouterApiKey ||
+  env.geminiApiKey
+);
+const aiProvider = env.groqApiKey
+  ? "groq"
+  : env.openrouterApiKey
+    ? "openrouter"
+    : env.geminiApiKey
+      ? "gemini"
+      : "none";
 if (!aiEnabled)
   log.warn("ai_disabled", {
     reason:
-      "No OpenRouter or Gemini key; explanations and drafts use templates.",
+      "No Groq, OpenRouter or Gemini key; explanations and drafts use templates.",
   });
 if (!env.google) log.warn("google_disabled", { missing: env.googleMissing });
 
 const app = createApp({
   auth: supabaseAuth(env.supabaseUrl, env.supabaseKey),
   repoFor: supabaseRepoFactory(env.supabaseUrl, env.supabaseKey),
-  // OpenRouter wins when its key is set; otherwise fall back to Gemini.
-  ai: env.openrouterApiKey
-    ? openRouterClient(
-        env.openrouterApiKey,
-        env.openrouterModel,
-        fetch,
-        25000,
-        {
-          fallbackModels: env.openrouterFallbackModels,
-        },
-      )
-    : geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
-        fallbackModels: env.geminiFallbackModels,
-      }),
+  // Groq wins when its key is set, then OpenRouter, then Gemini.
+  ai: env.groqApiKey
+    ? groqClient(env.groqApiKey, env.groqModel, fetch, 25000, {
+        fallbackModels: env.groqFallbackModels,
+      })
+    : env.openrouterApiKey
+      ? openRouterClient(
+          env.openrouterApiKey,
+          env.openrouterModel,
+          fetch,
+          25000,
+          {
+            fallbackModels: env.openrouterFallbackModels,
+          },
+        )
+      : geminiClient(env.geminiApiKey, env.geminiModel, fetch, 25000, {
+          fallbackModels: env.geminiFallbackModels,
+        }),
   google: googleRestApi(env.google),
   tokenKey: env.google?.tokenKey ?? null,
   stateKey: env.stateKey,
@@ -61,6 +76,7 @@ const server = app.listen(env.port, env.host, () =>
     host: env.host,
     port: env.port,
     ai: aiEnabled,
+    aiProvider,
     google: !!env.google,
   }),
 );

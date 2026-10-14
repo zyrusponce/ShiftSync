@@ -140,3 +140,13 @@ test("the public pages only load assets the policy allows", async () => {
     }
   }
 });
+
+test("/health says which AI provider is answering, and never a key", async () => {
+  const body = (await (await fetch(`${h.base}/health`)).json()) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(body.status, "ok");
+  assert.equal(typeof body.aiProvider, "string");
+  assert.doesNotMatch(JSON.stringify(body), /key|secret|token/i);
+});

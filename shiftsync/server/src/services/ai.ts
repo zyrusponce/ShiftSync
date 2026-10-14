@@ -1,7 +1,9 @@
-// Gemini (Google AI Studio) over REST. The key stays on the server.
+// AI providers (Groq, OpenRouter, Gemini) over REST. Keys stay on the server.
 export class AiUnavailable extends Error {}
 export interface AiClient {
   readonly available: boolean;
+  /** Which service answers, for health checks and logs. */
+  readonly provider?: "groq" | "openrouter" | "gemini" | "none";
   /** Returns parsed JSON that matches `schema`, or throws AiUnavailable. */
   generateJson(args: {
     system: string;
@@ -11,6 +13,7 @@ export interface AiClient {
 }
 export const disabledAi: AiClient = {
   available: false,
+  provider: "none",
   async generateJson() {
     throw new AiUnavailable("AI is not configured");
   },
@@ -91,6 +94,7 @@ export function openRouterClient(
 
   return {
     available: true,
+    provider: "openrouter",
     async generateJson({ system, prompt, schema }) {
       const body = sendBody(system, prompt, schema);
       for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -146,6 +150,133 @@ export function openRouterClient(
         }
       }
       throw new AiUnavailable("OpenRouter is unavailable");
+    },
+  };
+}
+
+/**
+ * Groq (OpenAI-compatible chat completions). Only a few Groq models can
+ * follow a JSON schema; the rest only guarantee syntactically valid JSON.
+ * So the schema is sent as `json_schema` where it is supported, and spelled
+ * out in the prompt otherwise. Replies are validated by the callers either way.
+ */
+const GROQ_SCHEMA_MODELS = /^(openai\/gpt-oss|qwen\/qwen3)/;
+// Reasoning models spend output tokens thinking; keep that small and out of
+// the reply.
+const GROQ_REASONING_MODELS = /^(openai\/gpt-oss|qwen\/qwen3)/;
+export function groqRequestBody(
+  model: string,
+  system: string,
+  prompt: string,
+  schema: unknown,
+) {
+  const json = toJsonSchema(schema);
+  const structured = GROQ_SCHEMA_MODELS.test(model);
+  return {
+    model,
+    messages: [
+      {
+        role: "system",
+        content: structured
+          ? system
+          : `${system}\nRespond with a single JSON object that matches this JSON Schema, and nothing else: ${JSON.stringify(json)}`,
+      },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.3,
+    max_completion_tokens: 2048,
+    response_format: structured
+      ? {
+          type: "json_schema",
+          // Best-effort: strict mode needs every property required, and
+          // CalenBud's action fields are optional by design.
+          json_schema: { name: "result", strict: false, schema: json },
+        }
+      : { type: "json_object" },
+    ...(GROQ_REASONING_MODELS.test(model)
+      ? { reasoning_effort: "low", include_reasoning: false }
+      : {}),
+  };
+}
+
+export function groqClient(
+  apiKey: string | null,
+  model: string,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 25000,
+  {
+    fallbackModels = [],
+    attempts = 2,
+    retryDelayMs = 1000,
+  }: GeminiOptions = {},
+): AiClient {
+  if (!apiKey) return disabledAi;
+  const models = [model, ...fallbackModels.filter((name) => name !== model)];
+
+  return {
+    available: true,
+    provider: "groq",
+    async generateJson({ system, prompt, schema }) {
+      for (const name of models) {
+        const body = JSON.stringify(
+          groqRequestBody(name, system, prompt, schema),
+        );
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+          let response: Response;
+          try {
+            response = await fetchImpl(
+              "https://api.groq.com/openai/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${apiKey}`,
+                },
+                body,
+                signal: AbortSignal.timeout(timeoutMs),
+              },
+            );
+          } catch (error) {
+            console.warn("groq_unreachable", name, (error as Error).name);
+            break;
+          }
+          if (!response.ok) {
+            // Status and Groq's error reason only; never the key or prompt.
+            const detail = (await response.text().catch(() => ""))
+              .replace(/\s+/g, " ")
+              .slice(0, 300);
+            console.warn("groq_error", response.status, name, detail);
+            if (RETRYABLE.has(response.status) && attempt < attempts) {
+              await sleep(retryDelayMs * attempt);
+              continue;
+            }
+            break;
+          }
+          const data = (await response.json().catch(() => null)) as {
+            choices?: {
+              finish_reason?: string;
+              message?: { content?: string };
+            }[];
+          } | null;
+          const text = data?.choices?.[0]?.message?.content;
+          if (!text) {
+            console.warn(
+              "groq_empty",
+              name,
+              data?.choices?.[0]?.finish_reason ?? "no choices",
+            );
+            break;
+          }
+          try {
+            return JSON.parse(text);
+          } catch {
+            // A truncated or malformed answer: try the next model.
+            console.warn("groq_malformed", name);
+            break;
+          }
+        }
+      }
+      throw new AiUnavailable("Groq is unavailable");
     },
   };
 }
@@ -216,6 +347,7 @@ export function geminiClient(
 
   return {
     available: true,
+    provider: "gemini",
     async generateJson({ system, prompt, schema }) {
       for (const name of models) {
         const body = JSON.stringify({

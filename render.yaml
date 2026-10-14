@@ -24,6 +24,10 @@ services:
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY

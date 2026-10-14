@@ -131,6 +131,7 @@ export function createApp(deps: Deps) {
     res.json({
       status: "ok",
       ai: deps.ai.available,
+      aiProvider: deps.ai.provider ?? "unknown",
       google: deps.google.configured && !!deps.tokenKey,
     });
   });

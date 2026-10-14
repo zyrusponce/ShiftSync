@@ -520,3 +520,148 @@ test("OpenRouter gets standard JSON Schema, not Gemini's uppercase dialect", asy
   assert.equal(sent.response_format.json_schema.strict, false);
   assert.equal(gemini.type, "OBJECT");
 });
+
+test("Groq: schema-capable models get json_schema, others get json_object plus the schema in the prompt", async () => {
+  const { groqRequestBody } = await import("../src/services/ai");
+  const schema = {
+    type: "OBJECT",
+    properties: { reply: { type: "STRING" } },
+    required: ["reply"],
+  };
+  const oss: any = groqRequestBody("openai/gpt-oss-20b", "sys", "p", schema);
+  assert.equal(oss.response_format.type, "json_schema");
+  assert.equal(oss.response_format.json_schema.strict, false);
+  assert.equal(oss.response_format.json_schema.schema.type, "object");
+  assert.equal(oss.messages[0].content, "sys", "schema is not duplicated");
+  // Reasoning is kept short and out of the reply.
+  assert.equal(oss.reasoning_effort, "low");
+  assert.equal(oss.include_reasoning, false);
+
+  const llama: any = groqRequestBody(
+    "llama-3.3-70b-versatile",
+    "sys",
+    "p",
+    schema,
+  );
+  assert.deepEqual(llama.response_format, { type: "json_object" });
+  assert.match(llama.messages[0].content, /JSON Schema.*"type":"object"/);
+  assert.equal(llama.reasoning_effort, undefined, "only reasoning models");
+  assert.equal(schema.type, "OBJECT", "the caller's schema is untouched");
+});
+
+test("Groq: falls back to the next model, retries brief overloads, and gives up cleanly", async () => {
+  const { groqClient, AiUnavailable } = await import("../src/services/ai");
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const calls: string[] = [];
+    const answers: Record<string, () => Response> = {
+      "openai/gpt-oss-20b": () => new Response("busy", { status: 503 }),
+      "openai/gpt-oss-120b": () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"ok":true}' } }],
+          }),
+        ),
+    };
+    const fetchStub = (async (url: string, init: RequestInit) => {
+      assert.equal(url, "https://api.groq.com/openai/v1/chat/completions");
+      assert.equal(
+        (init.headers as Record<string, string>).Authorization,
+        "Bearer gk",
+      );
+      const model = JSON.parse(String(init.body)).model;
+      calls.push(model);
+      return answers[model]();
+    }) as unknown as typeof fetch;
+    const client = groqClient("gk", "openai/gpt-oss-20b", fetchStub, 5000, {
+      fallbackModels: ["openai/gpt-oss-120b"],
+      attempts: 2,
+      retryDelayMs: 1,
+    });
+    assert.deepEqual(
+      await client.generateJson({
+        system: "s",
+        prompt: "p",
+        schema: { type: "OBJECT" },
+      }),
+      { ok: true },
+    );
+    // The first model was retried once, then the fallback answered.
+    assert.deepEqual(calls, [
+      "openai/gpt-oss-20b",
+      "openai/gpt-oss-20b",
+      "openai/gpt-oss-120b",
+    ]);
+
+    // Everything failing surfaces as AiUnavailable, so callers use templates.
+    const down = groqClient(
+      "gk",
+      "m",
+      (async () =>
+        new Response("no", { status: 500 })) as unknown as typeof fetch,
+      5000,
+      { attempts: 1 },
+    );
+    await assert.rejects(
+      down.generateJson({ system: "s", prompt: "p", schema: {} }),
+      AiUnavailable,
+    );
+    // Truncated JSON is also "unavailable", never a thrown parse error.
+    const cut = groqClient(
+      "gk",
+      "m",
+      (async () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"reply":"hi' } }],
+          }),
+        )) as unknown as typeof fetch,
+      5000,
+      { attempts: 1 },
+    );
+    await assert.rejects(
+      cut.generateJson({ system: "s", prompt: "p", schema: {} }),
+      AiUnavailable,
+    );
+    // No key means AI is simply off.
+    assert.equal(groqClient(null, "m").available, false);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test("AI provider settings: Groq is read from the environment with sensible defaults", () => {
+  const base = {
+    SUPABASE_URL: "https://ref.supabase.co",
+    SUPABASE_PUBLISHABLE_KEY: "k",
+  };
+  const off = readEnv(base);
+  assert.equal(off.groqApiKey, null);
+  const on = readEnv({ ...base, GROQ_API_KEY: " gk " });
+  assert.equal(on.groqApiKey, "gk");
+  assert.equal(on.groqModel, "openai/gpt-oss-20b");
+  assert.deepEqual(on.groqFallbackModels, ["openai/gpt-oss-120b"]);
+  const custom = readEnv({
+    ...base,
+    GROQ_API_KEY: "gk",
+    GROQ_MODEL: "openai/gpt-oss-120b",
+    GROQ_FALLBACK_MODELS: "llama-3.3-70b-versatile, qwen/qwen3.8-27b",
+  });
+  assert.equal(custom.groqModel, "openai/gpt-oss-120b");
+  assert.deepEqual(custom.groqFallbackModels, [
+    "llama-3.3-70b-versatile",
+    "qwen/qwen3.8-27b",
+  ]);
+});
+
+test("each AI client reports which provider it is", async () => {
+  const { disabledAi, geminiClient, groqClient, openRouterClient } =
+    await import("../src/services/ai");
+  assert.equal(groqClient("k", "m").provider, "groq");
+  assert.equal(openRouterClient("k", "m").provider, "openrouter");
+  assert.equal(geminiClient("k", "m").provider, "gemini");
+  assert.equal(disabledAi.provider, "none");
+  // Without a key every client is the disabled one.
+  assert.equal(groqClient(null, "m").provider, "none");
+});
