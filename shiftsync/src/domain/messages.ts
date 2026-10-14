@@ -45,6 +45,28 @@ export function impactExplanation(report: ImpactReport): string {
   return [...entries.map((e) => e.description), ...plan].join(" ");
 }
 
+const kindLabel = (item: ScheduleItem) =>
+  item.kind === "shift"
+    ? "work shift"
+    : item.kind === "task"
+      ? "task"
+      : item.category === "Class"
+        ? "class"
+        : "event";
+/**
+ * The date and commitments behind a conflict as bullet lines, taken from the
+ * schedule itself. Emails show them as a list ("Label: value").
+ */
+export function conflictDetails(conflict: Conflict): string[] {
+  return [
+    `• Date: ${formatDate(conflict.date)}`,
+    ...both(conflict).map(
+      (item) =>
+        `• ${item.title} (${kindLabel(item)}): ${formatTime(item.start)}–${formatTime(item.end)}`,
+    ),
+  ];
+}
+
 export type Recipient = {
   name: string;
   role: ContactRole;
@@ -57,8 +79,6 @@ export function templateDraft(
 ): { subject: string; body: string } {
   const theirs = recipient.relatedEvent;
   const other = both(conflict).find((item) => item.id !== theirs.id) ?? theirs;
-  const when = (item: ScheduleItem) =>
-    `${formatTime(item.start)}–${formatTime(item.end)}`;
   const date = formatDate(conflict.date);
   const ask =
     recipient.role === "Work"
@@ -71,7 +91,9 @@ export function templateDraft(
     body: [
       `Hi ${recipient.name.trim() || "there"},`,
       "",
-      `I'm writing about ${theirs.title} on ${date} (${when(theirs)}). It now ${conflict.type === "overlap" ? "overlaps with" : "leaves too little time to get to"} ${other.title} (${when(other)}), which I'm also committed to.`,
+      `I'm writing about a schedule conflict with ${theirs.title} on ${date}. It now ${conflict.type === "overlap" ? "overlaps with" : "leaves too little time to get to"} ${other.title}, which I'm also committed to:`,
+      "",
+      ...conflictDetails(conflict),
       "",
       ask,
       "",

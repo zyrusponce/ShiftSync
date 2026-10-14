@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { dialog } from "../components/dialog";
 import {
   Badge,
   Buddy,
@@ -8,18 +9,21 @@ import {
   Choice,
   Empty,
   Header,
+  Icon,
   Label,
   Screen,
   Section,
+  type IconName,
 } from "../components/ui";
+import { categoryColor } from "../components/ItemCard";
 import { ExplainCard } from "../components/ExplainCard";
 import { FadeIn, animateLayout, haptics } from "../components/motion";
 import {
   dateKey,
-  findConflicts,
   formatDate,
   formatTime,
   minutes,
+  openConflicts,
 } from "../domain/schedule";
 import { isFixed, resolutionPlan, type PairType } from "../domain/policy";
 import { formatDuration } from "../domain/recovery";
@@ -32,7 +36,7 @@ import {
   type Suggestions,
 } from "../store/useRecovery";
 import { useRootNavigation, type StackProps } from "../navigation/types";
-import { palette } from "../theme";
+import { palette, useTheme, type Theme } from "../theme";
 import type { Conflict, ConflictStatus, ScheduleItem } from "../domain/types";
 
 const pairLabel: Record<PairType, string> = {
@@ -56,19 +60,113 @@ const contactsOf = (conflict: Conflict) =>
     [conflict.first, conflict.second].flatMap((item) => item?.contactIds ?? []),
   );
 
+// How a conflict presents itself. Only real overlaps get the red treatment;
+// short gaps and availability issues are amber heads-ups.
+export function conflictLook(conflict: Conflict, theme: Theme) {
+  const urgent = conflict.type === "overlap";
+  return {
+    urgent,
+    title: urgent
+      ? "Schedule Conflict"
+      : conflict.type === "buffer"
+        ? "Short Gap"
+        : "Outside Availability",
+    icon: (urgent ? "warning" : "alert-circle") as IconName,
+    color: urgent ? theme.danger : theme.warning,
+    soft: urgent ? theme.dangerSoft : theme.warningSoft,
+    line: urgent ? theme.dangerLine : theme.line,
+  };
+}
+// The conflict's headline: icon + words + when, read before anything else.
+function ConflictHeading({ conflict }: { conflict: Conflict }) {
+  const theme = useTheme();
+  const look = conflictLook(conflict, theme);
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      <View
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          backgroundColor: look.soft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name={look.icon} size={22} color={look.color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Label size={16} weight="semibold" style={{ color: look.color }}>
+          {look.title}
+        </Label>
+        <Label size={12} tone="muted">
+          {`${formatDate(conflict.date, true)}${conflict.type === "overlap" ? ` · ${conflict.minutes} min overlap` : ""}`}
+        </Label>
+      </View>
+    </View>
+  );
+}
+// An affected event. The whole row opens its details, with the date of the
+// clash, so the detail screen shows the right occurrence.
+function AffectedEvent({
+  item,
+  date,
+  urgent,
+}: {
+  item: ScheduleItem;
+  date: string;
+  urgent: boolean;
+}) {
+  const theme = useTheme();
+  const navigation = useRootNavigation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${item.title}, ${formatTime(item.start)} to ${formatTime(item.end)}. Open details`}
+      onPress={() =>
+        navigation.navigate("ItemDetails", {
+          id: item.id,
+          occurrenceDate: date,
+        })
+      }
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        minHeight: 56,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        backgroundColor: pressed ? theme.soft : theme.background,
+      })}
+    >
+      <View
+        style={{
+          width: 4,
+          alignSelf: "stretch",
+          borderRadius: 2,
+          backgroundColor: urgent ? theme.danger : categoryColor(item),
+        }}
+      />
+      <View style={{ flex: 1 }}>
+        <Label weight="semibold">{item.title}</Label>
+        <Label size={13} tone="muted">
+          {`${formatTime(item.start)} – ${formatTime(item.end)}`}
+        </Label>
+      </View>
+      <Icon name="chevron-forward" size={18} color={theme.muted} />
+    </Pressable>
+  );
+}
 export function ConflictsScreen() {
   const { data, ignoreConflict } = useApp();
   const navigation = useRootNavigation();
-  const conflicts = findConflicts(
-    data.items,
-    data.availability,
-    data.preferences,
-    dateKey(),
-  ).filter(
-    (conflict) =>
-      !data.ignoredConflicts.includes(conflict.id) &&
-      data.conflictStatus[conflict.id] !== "resolved",
-  );
+  const theme = useTheme();
+  const conflicts = openConflicts(data, dateKey());
+  const urgentCount = conflicts.filter(
+    (conflict) => conflict.type === "overlap",
+  ).length;
+  const otherCount = conflicts.length - urgentCount;
   return (
     <Screen style={{ paddingBottom: data.preferences.aiEnabled ? 95 : 28 }}>
       <Header
@@ -77,66 +175,95 @@ export function ConflictsScreen() {
       />
       {conflicts.length ? (
         <>
-          <Label tone="muted" style={{ marginBottom: 16 }}>
-            {conflicts.length} issue{conflicts.length === 1 ? "" : "s"} in the
-            next two weeks
-          </Label>
+          <View
+            accessibilityRole="summary"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              padding: 14,
+              borderRadius: 14,
+              marginBottom: 16,
+              borderWidth: 1,
+              backgroundColor: urgentCount
+                ? theme.dangerSoft
+                : theme.warningSoft,
+              borderColor: urgentCount ? theme.dangerLine : theme.line,
+            }}
+          >
+            <Icon
+              name={urgentCount ? "warning" : "alert-circle"}
+              size={20}
+              color={urgentCount ? theme.danger : theme.warning}
+            />
+            <View style={{ flex: 1 }}>
+              <Label
+                weight="semibold"
+                style={{ color: urgentCount ? theme.danger : theme.warning }}
+              >
+                {urgentCount
+                  ? `${urgentCount} schedule conflict${urgentCount === 1 ? "" : "s"} need${urgentCount === 1 ? "s" : ""} attention`
+                  : `${otherCount} heads-up${otherCount === 1 ? "" : "s"} to review`}
+              </Label>
+              <Label size={12} tone="muted">
+                {urgentCount && otherCount
+                  ? `Plus ${otherCount} smaller heads-up${otherCount === 1 ? "" : "s"} · next two weeks`
+                  : "In the next two weeks"}
+              </Label>
+            </View>
+          </View>
           {conflicts.map((conflict) => {
             const pair = pairOf(conflict);
             const status = data.conflictStatus[conflict.id] ?? "unresolved";
             const bothFixed = pair === "fixed_fixed";
+            const look = conflictLook(conflict, theme);
             return (
-              <Card key={conflict.id}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <Badge
-                    color={
-                      conflict.severity === "High" ? palette.gold : palette.aqua
-                    }
-                  >{`${conflict.severity} · ${conflict.type === "overlap" ? "Overlap" : conflict.type === "buffer" ? "Short gap" : "Availability"}`}</Badge>
-                  <Label size={12} tone="muted">
-                    {formatDate(conflict.date, true)}
-                  </Label>
-                </View>
+              <Card
+                key={conflict.id}
+                style={{
+                  borderColor: look.line,
+                  borderLeftWidth: 4,
+                  borderLeftColor: look.color,
+                }}
+              >
+                <ConflictHeading conflict={conflict} />
                 <View
                   style={{
                     flexDirection: "row",
                     flexWrap: "wrap",
                     gap: 8,
-                    marginTop: 8,
+                    marginTop: 12,
                   }}
                 >
+                  {status === "unresolved" ? (
+                    <Badge
+                      icon="ellipse"
+                      color={look.soft}
+                      textColor={look.color}
+                      borderColor={look.line}
+                    >
+                      Unresolved
+                    </Badge>
+                  ) : (
+                    <Badge icon="time-outline" color={theme.successSoft}>
+                      {statusLabel[status]}
+                    </Badge>
+                  )}
                   {pair && (
                     <Badge color={palette.beige}>{pairLabel[pair]}</Badge>
                   )}
-                  {status !== "unresolved" && (
-                    <Badge color={palette.aqua}>{statusLabel[status]}</Badge>
-                  )}
                 </View>
-                <View style={{ marginVertical: 16 }}>
-                  <Label size={16} weight="semibold">
-                    {conflict.first.title}
-                  </Label>
-                  <Label size={13} tone="muted">
-                    {formatTime(conflict.first.start)} –{" "}
-                    {formatTime(conflict.first.end)}
-                  </Label>
-                  {conflict.second && (
-                    <View style={{ marginTop: 12 }}>
-                      <Label size={16} weight="semibold">
-                        {conflict.second.title}
-                      </Label>
-                      <Label size={13} tone="muted">
-                        {formatTime(conflict.second.start)} –{" "}
-                        {formatTime(conflict.second.end)}
-                      </Label>
-                    </View>
-                  )}
+                <View style={{ marginVertical: 14, gap: 8 }}>
+                  {[conflict.first, conflict.second]
+                    .filter((item): item is ScheduleItem => !!item)
+                    .map((item) => (
+                      <AffectedEvent
+                        key={item.id}
+                        item={item}
+                        date={conflict.date}
+                        urgent={look.urgent}
+                      />
+                    ))}
                 </View>
                 <Label style={{ marginBottom: 16 }}>{conflict.reason}</Label>
                 {bothFixed ? (
@@ -272,6 +399,7 @@ function OptionCard({
 
 export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
   const { data, ignoreConflict, setConflictStatus } = useApp();
+  const theme = useTheme();
   const recovery = useRecovery();
   // Reloads always use the latest schedule, even from older callbacks.
   const latest = useRef(recovery);
@@ -328,6 +456,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
       </Screen>
     );
   const status = data.conflictStatus[conflict.id] ?? "unresolved";
+  const look = conflictLook(conflict, theme);
   const items = [conflict.first, conflict.second].filter(
     (item): item is ScheduleItem => !!item,
   );
@@ -339,7 +468,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
           `${formatDate(block.date, true)} · ${formatTime(block.start)} – ${formatTime(block.end)}`,
       )
       .join("\n");
-    Alert.alert(
+    dialog.alert(
       option.kind === "split"
         ? `Split ${target.title}?`
         : `Move ${target.title}?`,
@@ -347,7 +476,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
       [
         { text: "Keep Current Time", style: "cancel" },
         {
-          text: option.kind === "split" ? "Split Session" : "Move Event",
+          text: option.kind === "split" ? "Split Session" : "Confirm New Time",
           onPress: async () => {
             setApproving(option.suggestionId);
             try {
@@ -356,11 +485,20 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
               const calendar = await recovery.approve(option, key, conflict.id);
               haptics.success();
               if (calendar?.status === "failed")
-                Alert.alert("Saved in ShiftSync", calendar.message);
+                dialog.alert(
+                  "Saved in ShiftSync",
+                  calendar.message,
+                  undefined,
+                  {
+                    tone: "warning",
+                  },
+                );
               else if (calendar?.status === "not_connected")
-                Alert.alert(
+                dialog.alert(
                   "Saved in ShiftSync",
                   "Google Calendar wasn't updated because it's no longer connected.",
+                  undefined,
+                  { tone: "warning" },
                 );
               navigation.goBack();
             } catch (error) {
@@ -369,13 +507,20 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
                 error instanceof ApiError &&
                 error.code === "STALE_SUGGESTION"
               ) {
-                Alert.alert(
+                dialog.alert(
                   "That time is no longer free",
                   `${error.message}\n\nHere are updated options.`,
+                  [{ text: "See Updated Options" }],
+                  { tone: "warning" },
                 );
                 load();
               } else
-                Alert.alert("We couldn't save this change", messageOf(error));
+                dialog.alert(
+                  "We couldn't save this change",
+                  messageOf(error),
+                  undefined,
+                  { tone: "warning" },
+                );
             } finally {
               setApproving(null);
             }
@@ -427,19 +572,43 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
           <Label tone="muted">{summary}</Label>
         </View>
       </View>
-      <Card>
+      <Card
+        style={{
+          borderColor: look.line,
+          borderLeftWidth: 4,
+          borderLeftColor: look.color,
+        }}
+      >
+        <ConflictHeading conflict={conflict} />
         <View
           style={{
             flexDirection: "row",
             flexWrap: "wrap",
             gap: 8,
-            marginBottom: 10,
+            marginTop: 12,
+            marginBottom: 12,
           }}
         >
+          {status === "unresolved" ? (
+            <Badge
+              icon="ellipse"
+              color={look.soft}
+              textColor={look.color}
+              borderColor={look.line}
+            >
+              Unresolved
+            </Badge>
+          ) : (
+            <Badge
+              icon={status === "resolved" ? "checkmark-circle" : "time-outline"}
+              color={theme.successSoft}
+            >
+              {statusLabel[status]}
+            </Badge>
+          )}
           {plan && (
             <Badge color={palette.beige}>{pairLabel[plan.pairType]}</Badge>
           )}
-          <Badge color={palette.aqua}>{statusLabel[status]}</Badge>
         </View>
         {items.map((item) => (
           <View key={item.id} style={{ marginBottom: 8 }}>
@@ -449,9 +618,7 @@ export function ResolveScreen({ route, navigation }: StackProps<"Resolve">) {
             </Label>
           </View>
         ))}
-        <Label style={{ marginTop: 4 }} tone="muted">
-          {conflict.reason}
-        </Label>
+        <Label style={{ marginTop: 4 }}>{conflict.reason}</Label>
       </Card>
       {plan?.action === "communicate" && (
         <Card>

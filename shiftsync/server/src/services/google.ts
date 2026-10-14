@@ -1,5 +1,6 @@
 // Google OAuth, Calendar and Gmail over their REST APIs. Only the minimum
 // scopes are requested: Calendar events, and Gmail compose (drafts + send).
+import crypto from "node:crypto";
 import type { GoogleService } from "../../../src/domain/contract";
 import type { GoogleConfig } from "../env";
 import { AppError } from "../http";
@@ -348,12 +349,21 @@ const encodeWord = (value: string) =>
   /^[\x20-\x7e]*$/.test(value)
     ? value
     : `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
-/** RFC 2822 plain-text message, base64url encoded for the Gmail API. */
+const base64Lines = (value: string) =>
+  Buffer.from(value.replace(/\r?\n/g, "\r\n"), "utf8")
+    .toString("base64")
+    .replace(/.{76}/g, "$&\r\n");
+/**
+ * RFC 2822 message, base64url encoded for the Gmail API. With `html` it is
+ * multipart/alternative: clients that show HTML get the formatted version,
+ * and the plain text (unchanged, no tags) is the fallback for the rest.
+ */
 export function buildRawEmail(message: {
   to: string;
   toName: string;
   subject: string;
   body: string;
+  html?: string;
 }): string {
   if (/[\r\n<>,;"]/.test(message.to))
     throw new AppError("VALIDATION_ERROR", "Invalid recipient address.");
@@ -363,21 +373,33 @@ export function buildRawEmail(message: {
       ? `"${name}" `
       : `${encodeWord(name)} `
     : "";
-  const body = Buffer.from(message.body.replace(/\r?\n/g, "\r\n"), "utf8")
-    .toString("base64")
-    .replace(/.{76}/g, "$&\r\n");
-  return Buffer.from(
-    [
-      `To: ${display}<${message.to}>`,
-      `Subject: ${encodeWord(headerText(message.subject))}`,
-      "MIME-Version: 1.0",
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      body,
-    ].join("\r\n"),
-    "utf8",
-  ).toString("base64url");
+  const headers = [
+    `To: ${display}<${message.to}>`,
+    `Subject: ${encodeWord(headerText(message.subject))}`,
+    "MIME-Version: 1.0",
+  ];
+  const part = (type: string, content: string) => [
+    `Content-Type: ${type}; charset=UTF-8`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Lines(content),
+  ];
+  const lines = message.html
+    ? (() => {
+        const boundary = `shiftsync-${crypto.randomBytes(12).toString("hex")}`;
+        return [
+          ...headers,
+          `Content-Type: multipart/alternative; boundary="${boundary}"`,
+          "",
+          `--${boundary}`,
+          ...part("text/plain", message.body),
+          `--${boundary}`,
+          ...part("text/html", message.html),
+          `--${boundary}--`,
+        ];
+      })()
+    : [...headers, ...part("text/plain", message.body)];
+  return Buffer.from(lines.join("\r\n"), "utf8").toString("base64url");
 }
 
 /**

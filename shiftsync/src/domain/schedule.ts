@@ -4,6 +4,7 @@ import type {
   Preferences,
   Conflict,
   Slot,
+  AppData,
 } from "./types";
 import { requiredGap } from "./policy";
 
@@ -248,6 +249,31 @@ export function findConflicts(
       a.date.localeCompare(b.date) ||
       { High: 0, Medium: 1, Low: 2 }[a.severity] -
         { High: 0, Medium: 1, Low: 2 }[b.severity],
+  );
+}
+// Conflicts the student still has to deal with: not ignored, not resolved.
+export function openConflicts(
+  data: Pick<
+    AppData,
+    | "items"
+    | "availability"
+    | "preferences"
+    | "ignoredConflicts"
+    | "conflictStatus"
+  >,
+  from: string,
+  days = 14,
+): Conflict[] {
+  return findConflicts(
+    data.items,
+    data.availability,
+    data.preferences,
+    from,
+    days,
+  ).filter(
+    (conflict) =>
+      !data.ignoredConflicts.includes(conflict.id) &&
+      data.conflictStatus[conflict.id] !== "resolved",
   );
 }
 export function suggestSlots(

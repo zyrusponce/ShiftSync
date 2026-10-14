@@ -3,8 +3,19 @@
     "preview": {
       "distribution": "internal",
       "developmentClient": false,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://shiftsync-api-v12i.onrender.com"
+      },
+
       "android": {
         "buildType": "apk"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "developmentClient": false,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://shiftsync-api-v12i.onrender.com"
       }
     }
   }

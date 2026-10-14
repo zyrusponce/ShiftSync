@@ -18,9 +18,9 @@ import { ItemCard } from "../components/ItemCard";
 import {
   addDays,
   dateKey,
-  findConflicts,
   formatDate,
   itemsOnDate,
+  openConflicts,
 } from "../domain/schedule";
 import { useApp } from "../store/AppStore";
 import { useRootNavigation } from "../navigation/types";
@@ -34,17 +34,9 @@ export function HomeScreen() {
   const dayItems = itemsOnDate(data.items, today).filter(
     (item) => !item.completed && item.kind !== "unavailable",
   );
-  const conflicts = findConflicts(
-    data.items,
-    data.availability,
-    data.preferences,
-    today,
-    7,
-  ).filter(
-    (conflict) =>
-      !data.ignoredConflicts.includes(conflict.id) &&
-      data.conflictStatus[conflict.id] !== "resolved",
-  );
+  const conflicts = openConflicts(data, today, 7);
+  // Only real overlaps turn the card red; smaller issues stay amber.
+  const urgent = conflicts.some((conflict) => conflict.type === "overlap");
   const upcoming = Array.from({ length: 7 }, (_, n) => addDays(today, n + 1))
     .flatMap((date) =>
       itemsOnDate(data.items, date)
@@ -114,7 +106,16 @@ export function HomeScreen() {
         }
       />
       <View style={{ flexDirection: "row", gap: 12 }}>
-        <Card style={{ flex: 1, marginBottom: 0 }}>
+        <Card
+          style={{ flex: 1, marginBottom: 0 }}
+          onPress={() =>
+            navigation.navigate("Main", {
+              screen: "Calendar",
+              params: { date: today, view: "Week" },
+            })
+          }
+          label={`${weekCount} events this week. Open this week in the calendar`}
+        >
           <Icon name="calendar-outline" color={palette.teal} />
           <Label size={28} weight="bold" style={{ marginTop: 8 }}>
             {weekCount}
@@ -128,22 +129,52 @@ export function HomeScreen() {
           style={{
             flex: 1,
             marginBottom: 0,
-            backgroundColor: theme.dark ? theme.surface : "#F5E0BE",
+            backgroundColor: urgent
+              ? theme.dangerSoft
+              : conflicts.length
+                ? theme.warningSoft
+                : theme.surface,
+            borderColor: urgent ? theme.dangerLine : theme.line,
           }}
-          label={`${conflicts.length} scheduling issues`}
+          label={
+            urgent
+              ? `${conflicts.length} scheduling issues, including schedule conflicts. Open conflicts`
+              : `${conflicts.length} scheduling issues. Open conflicts`
+          }
         >
           <Icon
             name={
-              conflicts.length
-                ? "alert-circle-outline"
-                : "checkmark-circle-outline"
+              urgent
+                ? "warning"
+                : conflicts.length
+                  ? "alert-circle-outline"
+                  : "checkmark-circle-outline"
+            }
+            color={
+              urgent
+                ? theme.danger
+                : conflicts.length
+                  ? theme.warning
+                  : theme.accentText
             }
           />
-          <Label size={28} weight="bold" style={{ marginTop: 8 }}>
+          <Label
+            size={28}
+            weight="bold"
+            style={{ marginTop: 8, color: urgent ? theme.danger : theme.text }}
+          >
             {conflicts.length}
           </Label>
-          <Label size={12} tone="muted">
-            {conflicts.length ? "Need attention" : "All in sync"}
+          <Label
+            size={12}
+            weight={urgent ? "semibold" : "regular"}
+            style={{ color: urgent ? theme.danger : theme.muted }}
+          >
+            {urgent
+              ? "Schedule conflict"
+              : conflicts.length
+                ? "Need attention"
+                : "All in sync"}
           </Label>
         </Card>
       </View>
@@ -197,7 +228,12 @@ export function HomeScreen() {
       <Section
         title="Today's schedule"
         action="Calendar"
-        onPress={() => navigation.navigate("Main", { screen: "Calendar" })}
+        onPress={() =>
+          navigation.navigate("Main", {
+            screen: "Calendar",
+            params: { date: today },
+          })
+        }
       />
       {dayItems.length ? (
         dayItems.map((item) => (
