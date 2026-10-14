@@ -32,6 +32,26 @@ export interface GeminiOptions {
  * OpenRouter (OpenAI-compatible chat completions). `fallbackModels` are sent
  * as OpenRouter's `models` list, so it fails over server-side.
  */
+/**
+ * The app writes its response schemas in Gemini's dialect ("OBJECT",
+ * "STRING"). OpenRouter speaks standard JSON Schema ("object", "string"):
+ * given the Gemini spelling, models ignore the schema and answer in plain
+ * text, so every reply failed validation and fell back to templates.
+ */
+export function toJsonSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(toJsonSchema);
+  if (!schema || typeof schema !== "object") return schema;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    out[key] =
+      key === "type" && typeof value === "string"
+        ? value.toLowerCase()
+        : toJsonSchema(value);
+  }
+  if (out.type === "object") out.additionalProperties = false;
+  return out;
+}
+
 export function openRouterClient(
   apiKey: string | null,
   model: string,
@@ -57,7 +77,13 @@ export function openRouterClient(
       max_tokens: 2048,
       response_format: {
         type: "json_schema",
-        json_schema: { name: "result", strict: true, schema },
+        // Not strict: strict mode demands every property be required, and
+        // CalenBud's action fields are optional by design.
+        json_schema: {
+          name: "result",
+          strict: false,
+          schema: toJsonSchema(schema),
+        },
       },
       // Only route to providers that honour the JSON schema.
       provider: { require_parameters: true },

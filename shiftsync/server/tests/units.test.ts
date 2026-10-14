@@ -473,3 +473,50 @@ test("emails with HTML are multipart, keeping the plain text unchanged", () => {
   assert.equal(decode(parts[1]), "<p><strong>Line 1</strong></p>");
   assert.ok(raw.trimEnd().endsWith(`--${boundary}--`));
 });
+
+test("OpenRouter gets standard JSON Schema, not Gemini's uppercase dialect", async () => {
+  const { openRouterClient, toJsonSchema } = await import("../src/services/ai");
+  const gemini = {
+    type: "OBJECT",
+    properties: {
+      reply: { type: "STRING" },
+      tags: { type: "ARRAY", items: { type: "STRING" } },
+      action: {
+        type: "OBJECT",
+        properties: { kind: { type: "STRING", enum: ["event", "task"] } },
+        required: ["kind"],
+      },
+    },
+    required: ["reply"],
+  };
+  assert.deepEqual(toJsonSchema(gemini), {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      reply: { type: "string" },
+      tags: { type: "array", items: { type: "string" } },
+      action: {
+        type: "object",
+        additionalProperties: false,
+        properties: { kind: { type: "string", enum: ["event", "task"] } },
+        required: ["kind"],
+      },
+    },
+    required: ["reply"],
+  });
+  // What actually goes over the wire, and that the input is left untouched.
+  let sent: any;
+  const client = openRouterClient("key", "m", async (_url, init) => {
+    sent = JSON.parse(String(init?.body));
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '{"reply":"hi"}' } }] }),
+    );
+  });
+  assert.deepEqual(
+    await client.generateJson({ system: "s", prompt: "p", schema: gemini }),
+    { reply: "hi" },
+  );
+  assert.equal(sent.response_format.json_schema.schema.type, "object");
+  assert.equal(sent.response_format.json_schema.strict, false);
+  assert.equal(gemini.type, "OBJECT");
+});
