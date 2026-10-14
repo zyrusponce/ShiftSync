@@ -268,7 +268,7 @@ export function scheduleRoutes(deps: Deps) {
         availability: next.availability,
         profile: {
           organization: next.profile.organization,
-          role: next.profile.role,
+          roles: next.profile.roles,
         },
         onboarded: next.onboarded,
       },

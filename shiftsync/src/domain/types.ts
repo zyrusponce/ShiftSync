@@ -83,7 +83,8 @@ export type Profile = {
   name: string;
   email: string;
   organization: string;
-  role: string;
+  /** Every way the person uses ShiftSync; empty until they choose. */
+  roles: string[];
 };
 export type ConflictType = "overlap" | "buffer" | "availability";
 export type Conflict = {
@@ -103,6 +104,8 @@ export type AppData = {
   version: 1;
   profile: Profile | null;
   onboarded: boolean;
+  /** The onboarding step to resume on this device; never synced. */
+  onboardingStep?: number;
   items: ScheduleItem[];
   availability: AvailabilityDay[];
   preferences: Preferences;

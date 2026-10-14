@@ -18,7 +18,7 @@ const base = (): AppData => ({
     name: "Ana",
     email: "ana@example.com",
     organization: "",
-    role: "Student",
+    roles: ["Student"],
   },
   onboarded: true,
 });

@@ -763,6 +763,35 @@ test("partial updates change only the fields sent; null clears a deadline", asyn
   assert.equal(cleared.body.item.deadline, undefined);
 });
 
+test("several onboarding roles are saved; the older single role still works", async () => {
+  const a = h.user(`roles-${crypto.randomUUID()}@example.com`);
+  const fresh = await a.call("GET", "/api/preferences");
+  assert.deepEqual(fresh.body.profile.roles, []);
+  assert.equal(fresh.body.onboarded, false);
+  const saved = await a.call("PATCH", "/api/preferences", {
+    profile: { name: "Ana", roles: ["Student", "Freelancer", "Student"] },
+    onboarded: true,
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.profile.roles, ["Student", "Freelancer"]);
+  const reloaded = await a.call("GET", "/api/preferences");
+  assert.deepEqual(reloaded.body.profile.roles, ["Student", "Freelancer"]);
+  assert.equal(reloaded.body.onboarded, true);
+  // A change that leaves out the roles keeps them.
+  const renamed = await a.call("PATCH", "/api/preferences", {
+    profile: { name: "Ana Santos" },
+  });
+  assert.deepEqual(renamed.body.profile.roles, ["Student", "Freelancer"]);
+  const legacy = await a.call("PATCH", "/api/preferences", {
+    profile: { name: "Ana Santos", role: "Manager" },
+  });
+  assert.deepEqual(legacy.body.profile.roles, ["Manager"]);
+  const invalid = await a.call("PATCH", "/api/preferences", {
+    profile: { name: "Ana", roles: ["Chef"] },
+  });
+  assert.equal(invalid.status, 400);
+});
+
 test("12b. all-day Google events import as non-blocking tasks", async () => {
   const s = await student();
   await connectGoogle(s.a);

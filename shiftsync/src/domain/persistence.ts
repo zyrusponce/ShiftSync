@@ -19,6 +19,18 @@ export const CATEGORIES = [
   "Other",
 ] as const;
 export const CONTACT_ROLES = ["Work", "School", "Other"] as const;
+export const PROFILE_ROLES = [
+  "Student",
+  "Employee",
+  "Manager",
+  "Freelancer",
+  "Other",
+] as const;
+/** Known roles, once each; older saves stored a single `role` string. */
+export function profileRoles(roles: unknown, legacyRole?: unknown): string[] {
+  const list = Array.isArray(roles) ? roles : legacyRole ? [legacyRole] : [];
+  return PROFILE_ROLES.filter((role) => list.includes(role));
+}
 export const CONFLICT_STATUSES: ConflictStatus[] = [
   "unresolved",
   "draft_prepared",
@@ -209,19 +221,34 @@ export function restoreData(raw: string): AppData {
   const preferences = migratePreferences(value.preferences);
   if (!isValidPreferences(preferences))
     throw new Error("Invalid saved preferences");
+  let profile = value.profile;
+  if (profile && !Array.isArray(profile.roles)) {
+    // Saved before more than one role could be chosen.
+    const { role, ...rest } = profile as Profile & { role?: unknown };
+    if (typeof role !== "string" || !profileRoles(null, role).length)
+      throw new Error("Invalid saved profile");
+    profile = { ...rest, roles: [role] };
+  }
   if (
-    value.profile !== null &&
-    (!value.profile ||
-      !["name", "email", "organization", "role"].every(
-        (key) => typeof value.profile?.[key as keyof Profile] === "string",
+    profile !== null &&
+    (!profile ||
+      !["name", "email", "organization"].every(
+        (key) => typeof profile?.[key as keyof Profile] === "string",
       ) ||
-      !value.profile.name.trim() ||
-      !EMAIL_PATTERN.test(value.profile.email) ||
-      !["Student", "Employee", "Manager", "Freelancer", "Other"].includes(
-        value.profile.role,
-      ))
+      !profile.name.trim() ||
+      !EMAIL_PATTERN.test(profile.email) ||
+      profileRoles(profile.roles).length !== profile.roles.length)
   )
     throw new Error("Invalid saved profile");
+  if (
+    value.onboardingStep !== undefined &&
+    !(
+      Number.isInteger(value.onboardingStep) &&
+      value.onboardingStep >= 0 &&
+      value.onboardingStep <= 3
+    )
+  )
+    throw new Error("Invalid saved onboarding step");
   if (
     !["ignoredConflicts", "readNotifications", "deletedNotifications"].every(
       (key) =>
@@ -244,5 +271,5 @@ export function restoreData(raw: string): AppData {
     )
   )
     throw new Error("Invalid saved conflict status");
-  return { ...value, preferences, contacts, conflictStatus };
+  return { ...value, profile, preferences, contacts, conflictStatus };
 }

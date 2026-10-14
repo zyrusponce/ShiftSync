@@ -265,11 +265,9 @@ Secondary:
 
 `Continue with Google`
 
-`Continue with Microsoft`
-
 Bottom:
 
-> Already have an account? **Log In**
+> Already have an account? **Log In here.**
 
 Use keyboard-aware scrolling so fields are never hidden by the mobile
 keyboard.
@@ -306,11 +304,9 @@ Secondary:
 
 `Continue with Google`
 
-`Continue with Microsoft`
-
 Bottom:
 
-> Don't have an account? **Sign Up**
+> Don't have an account? **Sign Up here.**
 
 ------------------------------------------------------------------------
 

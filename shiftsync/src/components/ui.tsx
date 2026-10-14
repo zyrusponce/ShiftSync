@@ -376,46 +376,73 @@ export function Button({
 export function Field({
   label,
   error,
+  password = false,
   ...props
-}: TextInputProps & { label: string; error?: string }) {
+}: TextInputProps & {
+  label: string;
+  error?: string;
+  /** Masks the text and adds an eye button that shows or hides it. */
+  password?: boolean;
+}) {
   const theme = useTheme();
   const ref = useRef<TextInput>(null);
   const reveal = useContext(FocusContext);
   const [focused, setFocused] = useState(false);
+  const [visible, setVisible] = useState(false);
   return (
     <View style={{ gap: 8, marginBottom: 16 }}>
       <Label weight="medium">{label}</Label>
-      <TextInput
-        ref={ref}
-        accessibilityLabel={label}
-        placeholderTextColor={theme.muted}
-        selectionColor={palette.teal}
-        {...props}
-        onFocus={(event) => {
-          setFocused(true);
-          reveal?.(ref.current);
-          props.onFocus?.(event);
-        }}
-        onBlur={(event) => {
-          setFocused(false);
-          reveal?.(null);
-          props.onBlur?.(event);
-        }}
-        style={[
-          s.input,
-          {
-            color: theme.text,
-            backgroundColor: theme.surface,
-            borderColor: error
-              ? theme.danger
-              : focused
-                ? palette.teal
-                : theme.line,
-          },
-          props.multiline && { minHeight: 100, textAlignVertical: "top" },
-          props.style,
-        ]}
-      />
+      <View>
+        <TextInput
+          ref={ref}
+          accessibilityLabel={label}
+          placeholderTextColor={theme.muted}
+          selectionColor={palette.teal}
+          {...props}
+          secureTextEntry={password ? !visible : props.secureTextEntry}
+          onFocus={(event) => {
+            setFocused(true);
+            reveal?.(ref.current);
+            props.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            reveal?.(null);
+            props.onBlur?.(event);
+          }}
+          style={[
+            s.input,
+            {
+              color: theme.text,
+              backgroundColor: theme.surface,
+              borderColor: error
+                ? theme.danger
+                : focused
+                  ? palette.teal
+                  : theme.line,
+            },
+            props.multiline && { minHeight: 100, textAlignVertical: "top" },
+            // Room for the eye button, so text never runs underneath it.
+            password && { paddingRight: 52 },
+            props.style,
+          ]}
+        />
+        {password && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={visible ? "Hide password" : "Show password"}
+            onPress={() => setVisible((value) => !value)}
+            style={({ pressed }) => [s.reveal, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            {/* The icon shows the current state: slashed while hidden. */}
+            <Icon
+              name={visible ? "eye-outline" : "eye-off-outline"}
+              size={20}
+              color={theme.muted}
+            />
+          </Pressable>
+        )}
+      </View>
       {error && (
         <FadeIn trigger={error}>
           <Label size={13}>{error}</Label>
@@ -638,6 +665,62 @@ export function Choice({
         )}
       </View>
     </PressableScale>
+  );
+}
+/** A plain checkbox beside its text, as in a form's consent line. */
+export function Checkbox({
+  checked,
+  onPress,
+  invalid = false,
+  label,
+  children,
+}: {
+  checked: boolean;
+  onPress: () => void;
+  /** Outlines the box in red after a required check was skipped. */
+  invalid?: boolean;
+  /** Read by screen readers; `children` is the visible text. */
+  label: string;
+  children: React.ReactNode;
+}) {
+  const theme = useTheme();
+  // Navy on light screens, beige on dark ones where navy would disappear.
+  const fill = theme.dark ? palette.beige : palette.navy;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={label}
+      accessibilityState={{ checked }}
+      onPress={() => {
+        haptics.selection();
+        onPress();
+      }}
+      style={s.checkbox}
+    >
+      <View
+        style={[
+          s.checkboxBox,
+          {
+            borderColor:
+              invalid && !checked
+                ? theme.danger
+                : checked
+                  ? fill
+                  : palette.beige,
+            backgroundColor: checked ? fill : "transparent",
+          },
+        ]}
+      >
+        {checked && (
+          <Icon
+            name="checkmark"
+            size={15}
+            color={theme.dark ? palette.navy : palette.ivory}
+          />
+        )}
+      </View>
+      <View style={{ flex: 1 }}>{children}</View>
+    </Pressable>
   );
 }
 export function Row({
@@ -1011,6 +1094,15 @@ const s = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 14,
   },
+  reveal: {
+    position: "absolute",
+    top: 0,
+    right: 4,
+    bottom: 0,
+    width: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   segments: {
     flexDirection: "row",
     padding: 4,
@@ -1040,6 +1132,21 @@ const s = StyleSheet.create({
     borderWidth: 1,
     minHeight: 54,
     marginBottom: 10,
+  },
+  checkbox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 44,
+    marginBottom: 8,
+  },
+  checkboxBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   row: {
     flexDirection: "row",

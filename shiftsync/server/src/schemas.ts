@@ -3,6 +3,7 @@ import {
   CATEGORIES,
   CONFLICT_STATUSES,
   CONTACT_ROLES,
+  PROFILE_ROLES,
 } from "../../src/domain/persistence";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
@@ -80,7 +81,16 @@ export const settingsPatchSchema = z.object({
     .object({
       name: z.string().trim().min(1).max(120),
       organization: z.string().max(120).default(""),
-      role: z.enum(["Student", "Employee", "Manager", "Freelancer", "Other"]),
+      roles: z
+        .array(z.enum(PROFILE_ROLES))
+        .max(PROFILE_ROLES.length)
+        .optional(),
+      // Earlier app versions send their single choice as `role`.
+      role: z.enum(PROFILE_ROLES).optional(),
+    })
+    .transform(({ role, roles, ...profile }) => {
+      const chosen = roles ?? (role ? [role] : undefined);
+      return chosen ? { ...profile, roles: [...new Set(chosen)] } : profile;
     })
     .optional(),
   onboarded: z.boolean().optional(),

@@ -267,7 +267,7 @@ npx expo export --platform android   # Metro/Hermes bundle check
 ### Not done (by design or out of scope)
 
 - **Automatic email sending:** emails are always reviewed and confirmed before sending, as aiIntegration.md requires (re-confirmed when progress.md was implemented).
-- Microsoft sign-in, password reset, push notifications.
+- Password reset, push notifications.
 - Recurring local series are not pushed to Google. Google recurring events are imported as individual occurrences.
 - OAuth hand-off handles and rate limits are kept in server memory, so run a single API instance (or move them to Redis/Postgres before scaling out).
 - Data from the on-device demo is not imported into a new account.

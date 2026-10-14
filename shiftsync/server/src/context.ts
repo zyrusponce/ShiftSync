@@ -4,6 +4,7 @@ import {
   isValidAvailability,
   isValidPreferences,
   migratePreferences,
+  profileRoles,
 } from "../../src/domain/persistence";
 import { findConflicts } from "../../src/domain/schedule";
 import { defaultAvailability, defaultPreferences } from "../../src/domain/seed";
@@ -16,10 +17,10 @@ import type { EventRow, ProfileRow, Repo } from "./repo/types";
 type Stored = {
   preferences?: Record<string, unknown>;
   availability?: unknown;
-  profile?: { organization?: unknown; role?: unknown };
+  /** `role` is the single choice saved by earlier app versions. */
+  profile?: { organization?: unknown; roles?: unknown; role?: unknown };
   onboarded?: unknown;
 };
-const ROLES = ["Student", "Employee", "Manager", "Freelancer", "Other"];
 
 export function settingsFrom(
   profile: ProfileRow | null,
@@ -33,13 +34,12 @@ export function settingsFrom(
     ...stored.preferences,
     timeZone,
   });
-  const role = String(stored.profile?.role ?? "Student");
   return {
     profile: {
       name: profile?.display_name || email.split("@")[0] || "Student",
       email: profile?.email ?? email,
       organization: String(stored.profile?.organization ?? "").slice(0, 120),
-      role: ROLES.includes(role) ? role : "Student",
+      roles: profileRoles(stored.profile?.roles, stored.profile?.role),
     },
     onboarded: stored.onboarded === true,
     preferences: isValidPreferences(candidate)

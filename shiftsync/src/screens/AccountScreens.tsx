@@ -16,6 +16,7 @@ import {
 } from "../components/ui";
 import { ItemCard } from "../components/ItemCard";
 import { FadeIn, haptics } from "../components/motion";
+import { PROFILE_ROLES } from "../domain/persistence";
 import { searchItems } from "../domain/schedule";
 import { useApp } from "../store/AppStore";
 import type { StackProps } from "../navigation/types";
@@ -96,7 +97,9 @@ export function ProfileScreen({ navigation }: StackProps<"Profile">) {
           {profile?.name}
         </Label>
         <Label tone="muted">{profile?.email}</Label>
-        <Badge>{profile?.role || "Employee"}</Badge>
+        {profile?.roles.length ? (
+          <Badge>{profile.roles.join(" · ")}</Badge>
+        ) : null}
       </View>
       <Card>
         <Row
@@ -252,12 +255,21 @@ export function PersonalInfoScreen({ navigation }: StackProps<"PersonalInfo">) {
         }
       />
       <Section title="How you use ShiftSync" />
-      {["Student", "Employee", "Manager", "Freelancer", "Other"].map((role) => (
+      {PROFILE_ROLES.map((role) => (
         <Choice
           key={role}
           label={role}
-          selected={profile.role === role}
-          onPress={() => setDraft((current) => ({ ...current, role }))}
+          selected={profile.roles.includes(role)}
+          onPress={() =>
+            setDraft((current) => ({
+              ...current,
+              roles: PROFILE_ROLES.filter((value) =>
+                value === role
+                  ? !current.roles.includes(role)
+                  : current.roles.includes(value),
+              ),
+            }))
+          }
         />
       ))}
     </Screen>

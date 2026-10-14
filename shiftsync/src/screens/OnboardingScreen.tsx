@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, PanResponder, View } from "react-native";
 import {
+  FadeIn,
   durations,
   easing,
+  haptics,
   useEntrance,
   useReducedMotion,
 } from "../components/motion";
@@ -18,18 +20,50 @@ import {
 } from "../components/ui";
 import { AvailabilityEditor } from "./AvailabilityScreen";
 import { useApp } from "../store/AppStore";
-import { palette } from "../theme";
+import { PROFILE_ROLES } from "../domain/persistence";
+import { palette, useTheme } from "../theme";
 
 export function OnboardingScreen() {
+  const theme = useTheme();
   const {
     data,
     setProfile,
     setAvailability,
     setPreferences,
+    setOnboardingStep,
     finishOnboarding,
   } = useApp();
-  const [step, setStep] = useState(0);
+  // Resume where this device left off if the app closed mid-way.
+  const [step, setStep] = useState(data.onboardingStep ?? 0);
   const [met, setMet] = useState(false);
+  const [rolesMissed, setRolesMissed] = useState(false);
+  const roles = data.profile?.roles ?? [];
+  useEffect(() => setOnboardingStep(step), [step, setOnboardingStep]);
+  /** Moves to a step; leaving step 1 needs at least one role chosen. */
+  const goTo = (next: number) => {
+    const target = Math.max(0, Math.min(3, next));
+    if (step === 0 && target > 0 && !roles.length) {
+      haptics.error();
+      setRolesMissed(true);
+      return;
+    }
+    setStep(target);
+  };
+  // The swipe handler is created once, so it reads the latest step through this.
+  const swipe = useRef((_delta: number) => {});
+  swipe.current = (delta) => goTo(step + delta);
+  const toggleRole = (role: string) => {
+    if (!data.profile) return;
+    const next = roles.includes(role)
+      ? roles.filter((value) => value !== role)
+      : [...roles, role];
+    // Kept in the same order as the options, however they were tapped.
+    setProfile({
+      ...data.profile,
+      roles: PROFILE_ROLES.filter((value) => next.includes(value)),
+    });
+    if (next.length) setRolesMissed(false);
+  };
   const stepRef = useRef(step);
   // Content enters from the side the user is moving toward.
   const direction = useRef(1);
@@ -50,10 +84,7 @@ export function OnboardingScreen() {
       onMoveShouldSetPanResponder: (_, g) =>
         Math.abs(g.dx) > 35 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
       onPanResponderRelease: (_, g) => {
-        if (Math.abs(g.dx) > 80)
-          setStep(
-            Math.max(0, Math.min(3, stepRef.current + (g.dx < 0 ? 1 : -1))),
-          );
+        if (Math.abs(g.dx) > 80) swipe.current(g.dx < 0 ? 1 : -1);
       },
     }),
   ).current;
@@ -68,18 +99,20 @@ export function OnboardingScreen() {
     <Screen
       footer={
         <View style={{ gap: 8 }}>
+          {step === 0 && rolesMissed ? (
+            <FadeIn trigger={rolesMissed}>
+              <Label size={13} style={{ color: theme.danger }}>
+                Choose at least one option to continue.
+              </Label>
+            </FadeIn>
+          ) : null}
           <Button
-            onPress={() =>
-              step === 3 ? finishOnboarding() : setStep((value) => value + 1)
-            }
+            onPress={() => (step === 3 ? finishOnboarding() : goTo(step + 1))}
           >
             {step === 3 ? "Go to ShiftSync" : "Continue"}
           </Button>
           {step > 0 && (
-            <Button
-              variant="ghost"
-              onPress={() => setStep((value) => value - 1)}
-            >
+            <Button variant="ghost" onPress={() => goTo(step - 1)}>
               Back
             </Button>
           )}
@@ -106,21 +139,20 @@ export function OnboardingScreen() {
         <Header title={titles[step]} />
         {step === 0 && (
           <>
-            <Label size={17} weight="medium" style={{ marginBottom: 18 }}>
+            <Label size={17} weight="medium">
               How do you use ShiftSync?
             </Label>
-            {["Student", "Employee", "Manager", "Freelancer", "Other"].map(
-              (role) => (
-                <Choice
-                  key={role}
-                  label={role}
-                  selected={data.profile?.role === role}
-                  onPress={() => {
-                    if (data.profile) setProfile({ ...data.profile, role });
-                  }}
-                />
-              ),
-            )}
+            <Label tone="muted" size={13} style={{ marginBottom: 18 }}>
+              Select all that apply.
+            </Label>
+            {PROFILE_ROLES.map((role) => (
+              <Choice
+                key={role}
+                label={role}
+                selected={roles.includes(role)}
+                onPress={() => toggleRole(role)}
+              />
+            ))}
           </>
         )}
         {step === 1 && (

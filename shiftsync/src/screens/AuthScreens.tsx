@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { dialog } from "../components/dialog";
 import {
   Badge,
@@ -7,7 +7,7 @@ import {
   Buddy,
   Button,
   Card,
-  Choice,
+  Checkbox,
   Field,
   Header,
   Icon,
@@ -19,7 +19,7 @@ import { useApp } from "../store/AppStore";
 import { accountsEnabled } from "../services/config";
 import { messageOf } from "../services/api";
 import { useRootNavigation, type StackProps } from "../navigation/types";
-import { palette, useTheme } from "../theme";
+import { fonts, palette, useTheme } from "../theme";
 
 function CalendarIllustration() {
   const theme = useTheme();
@@ -120,7 +120,7 @@ function CalendarIllustration() {
   );
 }
 export function WelcomeScreen({ navigation }: StackProps<"Welcome">) {
-  const { setProfile, finishOnboarding } = useApp();
+  const { enterDemo } = useApp();
   return (
     <Screen
       footer={
@@ -136,15 +136,17 @@ export function WelcomeScreen({ navigation }: StackProps<"Welcome">) {
           </Button>
           <Button
             variant="ghost"
-            onPress={() => {
-              setProfile({
-                name: "Alex Rivera",
-                email: "alex@example.com",
-                organization: "",
-                role: "Employee",
-              });
-              finishOnboarding();
-            }}
+            onPress={() =>
+              enterDemo(
+                {
+                  name: "Alex Rivera",
+                  email: "alex@example.com",
+                  organization: "",
+                  roles: ["Employee"],
+                },
+                true,
+              )
+            }
           >
             Explore the demo
           </Button>
@@ -177,20 +179,33 @@ export function WelcomeScreen({ navigation }: StackProps<"Welcome">) {
 }
 function AuthForm({ signup }: { signup: boolean }) {
   const navigation = useRootNavigation();
-  const { setProfile, signIn, signUp, signInWithGoogle } = useApp();
+  const { enterDemo, signIn, signUp, signInWithGoogle } = useApp();
+  const theme = useTheme();
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [organization, setOrganization] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [show, setShow] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [termsMissed, setTermsMissed] = useState(false);
   const [error, setError] = useState("");
   const fail = (message: string) => {
     haptics.error();
     setError(message);
   };
+  const terms = () =>
+    dialog.alert(
+      accountsEnabled ? "Terms and privacy" : "Demo terms and privacy",
+      accountsEnabled
+        ? "ShiftSync stores your schedule, contacts and preferences in your account so they sync across devices. If you connect Google, ShiftSync reads and updates your calendar events and prepares Gmail messages only when you ask; nothing is sent without your confirmation. You can disconnect Google at any time. Production terms and a full privacy policy must be supplied before public launch."
+        : "ShiftSync is a local demonstration, without an online account or connected services. Your name, email, and schedule are stored on this device. Do not enter sensitive information. Production terms and a privacy policy must be supplied before public launch.",
+    );
+  const link = {
+    fontFamily: fonts.semibold,
+    color: theme.text,
+    textDecorationLine: "underline",
+  } as const;
   const submit = async () => {
     if (signup && !name.trim()) {
       fail("Please enter your full name.");
@@ -209,6 +224,7 @@ function AuthForm({ signup }: { signup: boolean }) {
       return;
     }
     if (signup && !agreed) {
+      setTermsMissed(true);
       fail(
         accountsEnabled
           ? "Please accept the terms and privacy notice."
@@ -247,27 +263,28 @@ function AuthForm({ signup }: { signup: boolean }) {
     }
     const fallbackName = email.trim().split("@")[0].replace(/[._-]/g, " ");
     haptics.success();
-    setProfile({
-      name: signup
-        ? name.trim()
-        : fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1),
-      email: email.trim().toLowerCase(),
-      organization: organization.trim(),
-      role: "Employee",
-    });
+    // A new profile sets up first; logging in goes straight to the app.
+    enterDemo(
+      {
+        name: signup
+          ? name.trim()
+          : fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1),
+        email: email.trim().toLowerCase(),
+        organization: organization.trim(),
+        roles: [],
+      },
+      !signup,
+    );
     setPassword("");
     setConfirm("");
   };
-  const provider = (name: string) =>
-    dialog.alert(
-      `${name} sign-in`,
-      accountsEnabled
-        ? `${name} sign-in isn't available yet. Use Google or your email.`
-        : `This local demo is not connected to ${name}. Use the demo form or Explore the demo. A production sign-in needs a configured authentication service.`,
-    );
   // One Google consent signs in and connects Calendar and Gmail.
   const google = async () => {
-    if (!accountsEnabled) return provider("Google");
+    if (!accountsEnabled)
+      return dialog.alert(
+        "Google sign-in",
+        "This local demo is not connected to Google. Use the demo form or Explore the demo. A production sign-in needs a configured authentication service.",
+      );
     setBusy(true);
     setError("");
     try {
@@ -336,20 +353,10 @@ function AuthForm({ signup }: { signup: boolean }) {
         value={password}
         onChangeText={setPassword}
         placeholder="At least 8 characters"
-        secureTextEntry={!show}
+        password
         autoComplete={signup ? "new-password" : "current-password"}
         textContentType={signup ? "newPassword" : "password"}
       />
-      <View style={{ alignItems: "flex-end", marginTop: -10, marginBottom: 8 }}>
-        <Button
-          small
-          variant="ghost"
-          icon={show ? "eye-off-outline" : "eye-outline"}
-          onPress={() => setShow((value) => !value)}
-        >
-          {show ? "Hide password" : "Show password"}
-        </Button>
-      </View>
       {signup ? (
         <>
           <Field
@@ -357,7 +364,7 @@ function AuthForm({ signup }: { signup: boolean }) {
             value={confirm}
             onChangeText={setConfirm}
             placeholder="Re-enter your password"
-            secureTextEntry={!show}
+            password
             autoComplete="new-password"
           />
           <Field
@@ -366,28 +373,33 @@ function AuthForm({ signup }: { signup: boolean }) {
             onChangeText={setOrganization}
             placeholder="Your workplace or school"
           />
-          <Choice
+          <Checkbox
             label="I agree to the Terms and Privacy Policy."
-            selected={agreed}
-            onPress={() => setAgreed((value) => !value)}
-          />
-          <Button
-            variant="ghost"
-            onPress={() =>
-              dialog.alert(
-                accountsEnabled
-                  ? "Terms and privacy"
-                  : "Demo terms and privacy",
-                accountsEnabled
-                  ? "ShiftSync stores your schedule, contacts and preferences in your account so they sync across devices. If you connect Google, ShiftSync reads and updates your calendar events and prepares Gmail messages only when you ask; nothing is sent without your confirmation. You can disconnect Google at any time. Production terms and a full privacy policy must be supplied before public launch."
-                  : "ShiftSync is a local demonstration, without an online account or connected services. Your name, email, and schedule are stored on this device. Do not enter sensitive information. Production terms and a privacy policy must be supplied before public launch.",
-              )
-            }
+            checked={agreed}
+            invalid={termsMissed}
+            onPress={() => {
+              setAgreed((value) => !value);
+              if (termsMissed) {
+                setTermsMissed(false);
+                setError("");
+              }
+            }}
           >
-            {accountsEnabled
-              ? "Read terms and privacy"
-              : "Read demo terms and privacy"}
-          </Button>
+            <Label size={13}>
+              I agree to the{" "}
+              <Text
+                accessibilityRole="link"
+                onPress={terms}
+                suppressHighlighting
+                style={link}
+              >
+                {accountsEnabled
+                  ? "Terms and Privacy Policy"
+                  : "demo Terms and Privacy Policy"}
+              </Text>
+              .
+            </Label>
+          </Checkbox>
         </>
       ) : (
         <Button
@@ -413,26 +425,28 @@ function AuthForm({ signup }: { signup: boolean }) {
         >
           Continue with Google
         </Button>
-        <Button
-          icon="logo-microsoft"
-          variant="secondary"
-          onPress={() => provider("Microsoft")}
-        >
-          Continue with Microsoft
-        </Button>
-        <Label
-          size={13}
-          tone="muted"
-          style={{ textAlign: "center", marginTop: 12 }}
-        >
-          {signup ? "Already have an account?" : "Don't have an account?"}
-        </Label>
-        <Button
-          variant="ghost"
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={
+            signup
+              ? "Already have an account? Log In here."
+              : "Don't have an account? Sign Up here."
+          }
           onPress={() => navigation.replace(signup ? "Login" : "SignUp")}
+          style={({ pressed }) => ({
+            minHeight: 44,
+            justifyContent: "center",
+            marginTop: 8,
+            opacity: pressed ? 0.6 : 1,
+          })}
         >
-          {signup ? "Log In" : "Sign Up"}
-        </Button>
+          <Label size={13} tone="muted" style={{ textAlign: "center" }}>
+            {signup ? "Already have an account? " : "Don't have an account? "}
+            <Text style={link}>
+              {signup ? "Log In here." : "Sign Up here."}
+            </Text>
+          </Label>
+        </Pressable>
       </View>
     </Screen>
   );

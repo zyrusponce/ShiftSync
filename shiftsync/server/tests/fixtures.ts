@@ -18,7 +18,7 @@ export async function student(
 ) {
   const a = h.user(email);
   const settings = await a.call("PATCH", "/api/preferences", {
-    profile: { name: "Ana Santos", organization: "", role: "Student" },
+    profile: { name: "Ana Santos", organization: "", roles: ["Student"] },
     onboarded: true,
     preferences: { timeZone: "Asia/Manila" },
     availability: allDay,

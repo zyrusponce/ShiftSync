@@ -102,6 +102,10 @@ type Store = {
   saveContact: (contact: Contact) => string | null;
   deleteContact: (id: string) => void;
   setProfile: (profile: Profile | null) => void;
+  /** Opens the on-device demo as this profile, at onboarding or in the app. */
+  enterDemo: (profile: Profile, onboarded: boolean) => void;
+  /** Remembers the onboarding step to resume if the app closes mid-way. */
+  setOnboardingStep: (step: number) => void;
   finishOnboarding: () => void;
   setAvailability: (days: AvailabilityDay[]) => void;
   setPreferences: (preferences: Partial<Preferences>) => void;
@@ -119,18 +123,21 @@ function accountSeed(user: AuthUser): AppData {
     name: user.displayName || user.email.split("@")[0],
     email: user.email,
     organization: "",
-    role: "Student",
+    roles: [],
   };
   data.preferences.timeZone = deviceTimeZone();
   return data;
 }
-function restoreOr(raw: string | null, fallback: () => AppData): AppData {
-  if (!raw) return fallback();
+function restoreSaved(raw: string | null): AppData | null {
+  if (!raw) return null;
   try {
     return restoreData(raw);
   } catch {
-    return fallback();
+    return null;
   }
+}
+function restoreOr(raw: string | null, fallback: () => AppData): AppData {
+  return restoreSaved(raw) ?? fallback();
 }
 async function loadQueue(userId: string): Promise<Op[]> {
   try {
@@ -164,13 +171,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const lastPull = useRef(0);
   const lastCalendarSync = useRef(0);
   const calendarSync = useRef<Promise<CalendarSyncOutcome> | null>(null);
-  const pullRef = useRef<(afterRejection?: boolean) => Promise<void>>(
-    async () => {},
+  const pullRef = useRef<(afterRejection?: boolean) => Promise<boolean>>(
+    async () => false,
   );
+  // While a sign-in is still finding out whether onboarding is done, changes
+  // stay off screen so the wrong screen never mounts.
+  const holding = useRef(false);
 
   const show = useCallback((next: AppData) => {
     dataRef.current = next;
-    setData(next);
+    if (!holding.current) setData(next);
   }, []);
   const persistQueue = useCallback(() => {
     const user = sessionRef.current?.user;
@@ -201,7 +211,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createInitialData,
       );
       setAccount(null);
-      show({ ...local, profile: null, onboarded: false });
+      show({
+        ...local,
+        profile: null,
+        onboarded: false,
+        onboardingStep: undefined,
+      });
       setSync({ state: message ? "error" : "idle", message, pending: 0 });
     },
     [show],
@@ -250,10 +265,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return flushing.current;
   }, [leaveAccount, persistQueue, show]);
 
+  /** Loads the server's copy; resolves true once it has been applied. */
   const pull = useCallback(
-    async (afterRejection = false) => {
-      if (!sessionRef.current) return;
-      if (!afterRejection && !(await flush())) return;
+    async (afterRejection = false): Promise<boolean> => {
+      if (!sessionRef.current) return false;
+      if (!afterRejection && !(await flush())) return false;
       try {
         const [events, contacts, settings, conflicts] = await Promise.all([
           api.listEvents(),
@@ -262,7 +278,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           api.listConflicts(),
         ]);
         // Edits made while loading are newer; the next refresh catches up.
-        if (queueRef.current.length || !sessionRef.current) return;
+        if (queueRef.current.length || !sessionRef.current) return false;
         lastPull.current = Date.now();
         const before = dataRef.current.items;
         show(
@@ -286,6 +302,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             void presentNow(notice.title, notice.body, notice.target);
           }
         }
+        return true;
       } catch (error) {
         if (error instanceof ApiError && error.code === "UNAUTHORIZED")
           await leaveAccount(
@@ -302,6 +319,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 ? error.message
                 : "We couldn't refresh your schedule.",
           }));
+        return false;
       }
     },
     [flush, leaveAccount, show],
@@ -395,15 +413,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sessionRef.current = session;
       const user = session.user;
       queueRef.current = await loadQueue(user.id);
-      const cached = await AsyncStorage.getItem(accountKey(user.id)).catch(
-        () => null,
+      const saved = restoreSaved(
+        await AsyncStorage.getItem(accountKey(user.id)).catch(() => null),
       );
-      show(restoreOr(cached, () => accountSeed(user)));
-      setAccount(user);
-      await pull();
+      if (saved?.onboarded) {
+        // Onboarding is done, so the saved copy can open the app right away.
+        show(saved);
+        setAccount(user);
+        await pull();
+      } else {
+        // Only the server knows whether this is a new account or one that
+        // finished onboarding elsewhere: the login screen stays up until the
+        // answer arrives, then the right screen is shown once.
+        holding.current = true;
+        let loaded = false;
+        try {
+          show(saved ?? accountSeed(user));
+          loaded = await pull();
+        } finally {
+          holding.current = false;
+        }
+        if (!sessionRef.current) {
+          // The session was refused while loading; it has already ended.
+          show(dataRef.current);
+          return;
+        }
+        if (!loaded && !saved) {
+          await leaveAccount(false, null);
+          throw new Error(
+            "We couldn't load your account. Check your connection and try again.",
+          );
+        }
+        show(dataRef.current);
+        setAccount(user);
+      }
       void syncCalendar();
     },
-    [pull, show, syncCalendar],
+    [leaveAccount, pull, show, syncCalendar],
   );
 
   useEffect(
@@ -430,12 +476,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setApiSession(session);
         sessionRef.current = session;
         queueRef.current = await loadQueue(session.user.id);
-        const cached = await AsyncStorage.getItem(accountKey(session.user.id));
+        const saved = restoreSaved(
+          await AsyncStorage.getItem(accountKey(session.user.id)),
+        );
         if (!mounted) return;
-        show(restoreOr(cached, () => accountSeed(session.user)));
+        show(saved ?? accountSeed(session.user));
         setAccount(session.user);
         setSync((s) => ({ ...s, pending: queueRef.current.length }));
-        void pull().then(syncCalendar);
+        if (saved?.onboarded) {
+          void pull().then(syncCalendar);
+          return;
+        }
+        // Onboarding may have been finished on another device: ask the
+        // server before the first screen appears instead of guessing.
+        const loaded = await pull();
+        if (!mounted) return;
+        if (!loaded && !saved && sessionRef.current)
+          throw new Error("The account could not be loaded");
+        void syncCalendar();
         return;
       }
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -515,7 +573,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       account,
       sync,
       flush,
-      refresh: () => pull(),
+      refresh: async () => {
+        await pull();
+      },
       syncGoogleCalendar: runCalendarSync,
       dismissSyncMessage: () =>
         setSync((current) => ({ ...current, state: "idle", message: null })),
@@ -611,8 +671,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ),
         })),
       setProfile: (profile) => commit((current) => ({ ...current, profile })),
+      // One change, so the first screen after it is already the right one.
+      enterDemo: (profile, onboarded) =>
+        commit((current) => ({
+          ...current,
+          profile,
+          onboarded,
+          onboardingStep: undefined,
+        })),
+      setOnboardingStep: (step) =>
+        commit((current) =>
+          current.onboardingStep === step
+            ? current
+            : { ...current, onboardingStep: step },
+        ),
       finishOnboarding: () =>
-        commit((current) => ({ ...current, onboarded: true })),
+        commit((current) => ({
+          ...current,
+          onboarded: true,
+          onboardingStep: undefined,
+        })),
       setAvailability: (availability) =>
         commit((current) => ({
           ...current,
@@ -658,6 +736,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...current,
             profile: null,
             onboarded: false,
+            onboardingStep: undefined,
           }));
           return;
         }

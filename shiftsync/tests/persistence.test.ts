@@ -9,9 +9,50 @@ test("valid persisted data restores without replacing user items", () => {
     name: "Mia Cruz",
     email: "mia@example.com",
     organization: "School",
-    role: "Student",
+    roles: ["Student"],
   };
   assert.deepEqual(restoreData(JSON.stringify(data)), data);
+});
+test("several roles restore, and a single saved role becomes a list", () => {
+  const data = createInitialData();
+  data.profile = {
+    name: "Mia Cruz",
+    email: "mia@example.com",
+    organization: "",
+    roles: ["Student", "Freelancer"],
+  };
+  assert.deepEqual(restoreData(JSON.stringify(data)).profile, data.profile);
+  const { roles: _roles, ...legacy } = data.profile;
+  const restored = restoreData(
+    JSON.stringify({ ...data, profile: { ...legacy, role: "Employee" } }),
+  );
+  assert.deepEqual(restored.profile?.roles, ["Employee"]);
+  assert.throws(() =>
+    restoreData(
+      JSON.stringify({
+        ...data,
+        profile: { ...data.profile, roles: ["Student", "Student"] },
+      }),
+    ),
+  );
+  assert.throws(() =>
+    restoreData(
+      JSON.stringify({
+        ...data,
+        profile: { ...data.profile, roles: ["Chef"] },
+      }),
+    ),
+  );
+});
+test("the onboarding step to resume must be one of the four steps", () => {
+  const data = createInitialData();
+  assert.equal(
+    restoreData(JSON.stringify({ ...data, onboardingStep: 2 })).onboardingStep,
+    2,
+  );
+  assert.throws(() =>
+    restoreData(JSON.stringify({ ...data, onboardingStep: 7 })),
+  );
 });
 test("duplicate or empty item IDs are rejected before hydration", () => {
   const duplicate = createInitialData();
@@ -27,14 +68,14 @@ test("empty profile names and invalid emails are rejected before rendering", () 
     name: "",
     email: "mia@example.com",
     organization: "",
-    role: "Student",
+    roles: ["Student"],
   };
   assert.throws(() => restoreData(JSON.stringify(data)));
   data.profile = {
     name: "Mia",
     email: "invalid",
     organization: "",
-    role: "Student",
+    roles: ["Student"],
   };
   assert.throws(() => restoreData(JSON.stringify(data)));
 });
