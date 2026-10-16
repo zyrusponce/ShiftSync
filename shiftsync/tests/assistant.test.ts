@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  categoryFromText,
   freeTime,
   parseDates,
   parseTimes,
+  validateAddItem,
   validateShiftChange,
 } from "../src/domain/assistant";
 import { defaultPreferences } from "../src/domain/seed";
@@ -166,4 +168,54 @@ test("AI shift changes are accepted only when grounded in the student's words", 
     )?.start,
     "08:00",
   );
+});
+
+test("activities are sorted into the category they name", () => {
+  assert.equal(categoryFromText("Math class"), "Class");
+  assert.equal(categoryFromText("CS 101"), "Class");
+  assert.equal(categoryFromText("Physics lab"), "Class");
+  assert.equal(categoryFromText("Midterm exam"), "Class");
+  assert.equal(categoryFromText("Review for the math exam"), "Study");
+  assert.equal(categoryFromText("Work shift at Jollibee"), "Work");
+  assert.equal(categoryFromText("OJT"), "Work");
+  assert.equal(categoryFromText("Work on my essay"), "Study");
+  assert.equal(categoryFromText("Dentist appointment"), null);
+});
+
+test("added items get the kind and category of the activity", () => {
+  const add = (raw: Record<string, unknown>, text: string) =>
+    validateAddItem(
+      { date: "2026-10-13", start: "08:00", ...raw },
+      `${text} tomorrow at 8am`,
+      TODAY,
+      60,
+    );
+  // The model left a class as the default "Personal".
+  const lesson = add(
+    { title: "Math class", kind: "event", category: "Personal" },
+    "add my math class",
+  );
+  assert.equal(lesson?.kind, "event");
+  assert.equal(lesson?.category, "Class");
+  // The model called a shift an event.
+  const work = add(
+    { title: "Shift at Jollibee", kind: "event" },
+    "I have a shift at Jollibee",
+  );
+  assert.equal(work?.kind, "shift");
+  assert.equal(work?.category, "Work");
+  // The title is bare but the student said what it is.
+  assert.equal(
+    add({ title: "Calculus" }, "add calculus class")?.category,
+    "Class",
+  );
+  // The model's category stands when the title says nothing either way.
+  assert.equal(
+    add({ title: "Calculus", category: "Study" }, "calculus")?.category,
+    "Study",
+  );
+  assert.equal(add({ title: "Dentist" }, "dentist")?.category, "Personal");
+  const due = add({ title: "Submit lab report", kind: "task" }, "submit");
+  assert.equal(due?.kind, "task");
+  assert.equal(due?.category, "Study");
 });

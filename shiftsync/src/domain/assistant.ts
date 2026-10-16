@@ -200,6 +200,29 @@ const CATEGORIES = [
   "Important",
   "Other",
 ] as const;
+type Category = (typeof CATEGORIES)[number];
+// Checked in order: "review for the math exam" is studying, not a class, and
+// "work on my essay" is not a job.
+const CATEGORY_WORDS: [Category, RegExp][] = [
+  [
+    "Study",
+    /\b(?:study|studying|review|reviewing|reviewer|homework|assignment|essay|report|thesis|research|reading|aral)\b/i,
+  ],
+  [
+    "Class",
+    /\b(?:class(?:es)?|lecture|lab|laboratory|seminar|tutorial|recitation|quiz|exam|midterms?|finals?|course|subject|klase)\b/i,
+  ],
+  [
+    "Work",
+    /\b(?:shift|duty|job|part[- ]?time|ojt|internship|trabaho|work(?!\s+on\b))\b/i,
+  ],
+  // A course code such as "CS 101" or "MATH21".
+  ["Class", /\b[A-Z]{2,5}\s?\d{2,3}[A-Z]?\b/],
+];
+/** The category a title or message clearly names, if any. */
+export function categoryFromText(text: string): Category | null {
+  return CATEGORY_WORDS.find(([, pattern]) => pattern.test(text))?.[0] ?? null;
+}
 const validTime = (value: unknown): value is string =>
   typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 const cleanTitle = (value: unknown, max = 80) =>
@@ -234,10 +257,22 @@ export function validateAddItem(
       : null;
   const end = stated ?? start + Math.max(15, defaultDuration || 60);
   if (end > 23 * 60 + 59) return null;
-  const kind = raw.kind === "task" || raw.kind === "shift" ? raw.kind : "event";
+  // What the title says wins over the model, which often leaves a class or a
+  // shift as "Personal"; the student's own words fill in after that.
+  const named = categoryFromText(title);
+  const kind =
+    raw.kind === "task" || raw.kind === "shift"
+      ? raw.kind
+      : named === "Work"
+        ? "shift"
+        : "event";
   const category =
-    CATEGORIES.find((value) => value === raw.category) ??
-    (kind === "shift" ? "Work" : kind === "task" ? "Important" : "Personal");
+    kind === "shift"
+      ? "Work"
+      : (named ??
+        CATEGORIES.find((value) => value === raw.category) ??
+        categoryFromText(userText) ??
+        (kind === "task" ? "Important" : "Personal"));
   return {
     type: "add_item",
     kind,
@@ -249,6 +284,16 @@ export function validateAddItem(
     location: cleanTitle(raw.location, 80),
   };
 }
+
+/** How a proposed addition is described to the student, e.g. "Class". */
+export const addLabel = (
+  action: Extract<ChatAction, { type: "add_item" }>,
+) =>
+  action.kind === "shift"
+    ? "Work shift"
+    : action.kind === "task"
+      ? `${action.category} task`
+      : action.category;
 
 const words = (text: string) =>
   text

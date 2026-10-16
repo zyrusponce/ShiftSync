@@ -27,6 +27,7 @@ import {
   formatDate,
   formatTime,
 } from "../domain/schedule";
+import { addLabel } from "../domain/assistant";
 import { newItem } from "../domain/seed";
 import { chatKey, useApp } from "../store/AppStore";
 import { api, isNetworkError } from "../services/api";
@@ -380,6 +381,8 @@ export function ChatScreen({ navigation }: StackProps<"Chat">) {
                       message.action.type === "remove_item") && (
                       <Label size={13}>
                         {message.action.title}
+                        {message.action.type === "add_item" &&
+                          ` · ${addLabel(message.action)}`}
                         {"\n"}
                         {when(message.action)}
                       </Label>

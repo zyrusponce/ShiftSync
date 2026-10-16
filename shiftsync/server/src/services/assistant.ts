@@ -9,6 +9,7 @@ import type {
   ExplainResponse,
 } from "../../../src/domain/contract";
 import {
+  addLabel,
   freeTime,
   parseDates,
   parseTimes,
@@ -163,7 +164,9 @@ const CHAT_RULES = [
   "Never invent events, dates, times or free time. Free time must come from facts.freeTime.",
   "Write times like '4:00 PM' and dates like 'Tuesday, October 13', exactly as they appear in the facts.",
   "You cannot change the schedule yourself. You can only PROPOSE one change at a time; the student confirms it with a button in the app, so never say it is already done, added, removed or resolved.",
-  "To add something, set action.type to 'add_item' only when the student has told you the date and the start time. Fill title, kind ('event', 'task' or 'shift'), date as YYYY-MM-DD, start and end as 24-hour HH:mm, category and location only from what they said. If the date or start time is missing, ask for it and set action.type to 'none'.",
+  "To add something, set action.type to 'add_item' only when the student has told you the date and the start time. Fill title, date as YYYY-MM-DD, start and end as 24-hour HH:mm, and location only from what they said. If the date or start time is missing, ask for it and set action.type to 'none'.",
+  "Always set kind and category for add_item by what the activity is, even if the student does not name the category. A job, work shift, duty, part-time work or OJT is kind 'shift' with category 'Work'. A class, lecture, lab, seminar, quiz or exam (including a subject or course code like 'CS 101') is kind 'event' with category 'Class'. Studying, reviewing or homework time is kind 'event' with category 'Study'. Something that must be finished by a time, like submitting an assignment, is kind 'task' (category 'Study' if it is schoolwork, otherwise 'Important'). Appointments, errands, gym, family and friends are kind 'event' with category 'Personal'. Use 'Other' only if none fit.",
+  "Keep the activity in the title, for example 'Math class' or 'Work shift at Jollibee', not just 'Math'. If the student asks to add several things at once, propose the first one only and say you will set up the next one after they confirm.",
   "To remove something, set action.type to 'remove_item' with that entry's itemId from facts.schedule. Never remove an entry with repeats true; tell the student to open it and edit the series instead. If it is unclear which entry they mean, ask.",
   "To fix a conflict, set action.type to 'resolve_conflict' with its conflictId from facts.conflicts, and tell them the Resolve screen will show options they can choose from.",
   "If the student says one of their work shifts changed, set action.type to 'change_shift' with that shift's shiftId from facts.shiftsYouCanChange, the new date as YYYY-MM-DD and start/end as 24-hour HH:mm taken from what the student said, and tell them to review the impact before anything is saved.",
@@ -323,7 +326,7 @@ export async function chatReply(
         change.type === "change_shift"
           ? `I can show you what changes if ${change.title} moves to ${when}. Nothing is saved until you confirm.`
           : change.type === "add_item"
-            ? `I can add ${change.title} on ${when}. Nothing is saved until you confirm.`
+            ? `I can add ${change.title} (${addLabel(change)}) on ${when}. Nothing is saved until you confirm.`
             : `I can remove ${change.title} (${when}). Nothing is removed until you confirm.`;
       return {
         reply: text,
