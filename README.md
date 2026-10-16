@@ -177,7 +177,11 @@ The tests use fake AI responses to cover hallucinated times, overloaded provider
 
 ## Team
 
-Add team member names and roles here.
+## Micha Cruz ## — UI/UX & front end: Designed and built the app's screens (Home, Calendar, Conflicts, Email review, CalenBud chat), with one consistent look, light and dark mode, and mobile-friendly controls.
+## Mark Jacob Martus ## — Back end & scheduling logic: Built conflict detection, the rules that keep classes and shifts fixed, rescheduling of flexible study time, and the server and database that keep each student's data private.
+## Zyrus Ponce ## — AI integration, Google APIs & testing: Connected CalenBud's AI with backup models and safety checks, integrated Google sign-in, Calendar sync and Gmail, and led testing.
+We used AI coding assistants to help write code from our requirements. Each of us reviewed and tested our own part.
+
 
 ## License
 
